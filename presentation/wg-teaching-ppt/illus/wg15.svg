@@ -1,0 +1,29 @@
+<svg viewBox="0 0 360 230" width="360" height="230" font-family="Arial,sans-serif" xmlns="http://www.w3.org/2000/svg">
+      <defs><marker id="wg15a" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#1FC8A5"/></marker></defs>
+      <rect x="10" y="26" width="86" height="38" rx="8" fill="#153B6B"/>
+      <text x="53" y="44" text-anchor="middle" font-size="10" fill="white">程式重啟</text>
+      <text x="53" y="58" text-anchor="middle" font-size="9" fill="#9ED8FF">冷啟動</text>
+      <line x1="53" y1="64" x2="53" y2="90" stroke="#1FC8A5" stroke-width="2.5" marker-end="url(#wg15a)"/>
+      <rect x="10" y="96" width="86" height="74" rx="6" fill="#FFFFFF" stroke="#D5E7F7" stroke-width="2"/>
+      <text x="53" y="114" text-anchor="middle" font-size="9" fill="#52708A">session.jsonl</text>
+      <rect x="18" y="120" width="70" height="12" rx="3" fill="#EAF8F5"/>
+      <rect x="18" y="136" width="70" height="12" rx="3" fill="#EAF5FF"/>
+      <rect x="18" y="152" width="70" height="12" rx="3" fill="#EAF8F5"/>
+      <line x1="98" y1="133" x2="126" y2="133" stroke="#1FC8A5" stroke-width="2.5" marker-end="url(#wg15a)"/>
+      <text x="112" y="122" text-anchor="middle" font-size="8" fill="#1FC8A5">json.loads</text>
+      <text x="112" y="146" text-anchor="middle" font-size="8" fill="#52708A">逐行讀回</text>
+      <rect x="132" y="96" width="106" height="74" rx="6" fill="#EAF5FF" stroke="#7FB4F0" stroke-width="2"/>
+      <text x="185" y="114" text-anchor="middle" font-size="9" fill="#52708A">history 還原</text>
+      <rect x="140" y="120" width="90" height="14" rx="4" fill="#EAF5FF" stroke="#7FB4F0" stroke-width="1"/>
+      <text x="185" y="131" text-anchor="middle" font-size="8" fill="#153B6B">HumanMessage</text>
+      <rect x="140" y="138" width="90" height="14" rx="4" fill="#EAF8F5" stroke="#8EE0D0" stroke-width="1"/>
+      <text x="185" y="149" text-anchor="middle" font-size="8" fill="#153B6B">AIMessage</text>
+      <rect x="140" y="156" width="90" height="14" rx="4" fill="#EAF5FF" stroke="#7FB4F0" stroke-width="1"/>
+      <text x="185" y="167" text-anchor="middle" font-size="8" fill="#153B6B">HumanMessage</text>
+      <line x1="240" y1="133" x2="268" y2="133" stroke="#1FC8A5" stroke-width="2.5" marker-end="url(#wg15a)"/>
+      <rect x="272" y="106" width="80" height="54" rx="8" fill="#EAF8F5" stroke="#8EE0D0" stroke-width="2"/>
+      <text x="312" y="126" text-anchor="middle" font-size="10" fill="#153B6B">接著</text>
+      <text x="312" y="144" text-anchor="middle" font-size="10" fill="#1FC8A5">繼續聊</text>
+      <rect x="60" y="198" width="240" height="24" rx="8" fill="#1FC8A5"/>
+      <text x="180" y="214" text-anchor="middle" font-size="11" fill="white">關掉程式再開，對話不中斷</text>
+    </svg>

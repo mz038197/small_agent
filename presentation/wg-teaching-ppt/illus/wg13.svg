@@ -1,0 +1,25 @@
+<svg viewBox="0 0 360 230" width="360" height="230" font-family="Arial,sans-serif" xmlns="http://www.w3.org/2000/svg">
+      <defs><marker id="wg13a" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#1FC8A5"/></marker></defs>
+      <rect x="8" y="72" width="68" height="52" rx="8" fill="#1FC8A5"/>
+      <text x="42" y="92" text-anchor="middle" font-size="11" fill="white">LLM</text>
+      <text x="42" y="108" text-anchor="middle" font-size="9" fill="#D9F7F1">invoke</text>
+      <line x1="76" y1="98" x2="100" y2="98" stroke="#1FC8A5" stroke-width="2.5" marker-end="url(#wg13a)"/>
+      <polygon points="128,78 166,98 128,118 90,98" fill="#EAF5FF" stroke="#7FB4F0" stroke-width="2"/>
+      <text x="128" y="93" text-anchor="middle" font-size="9" fill="#153B6B">tool</text>
+      <text x="128" y="107" text-anchor="middle" font-size="9" fill="#153B6B">calls?</text>
+      <line x1="166" y1="98" x2="196" y2="98" stroke="#1FC8A5" stroke-width="2.5" marker-end="url(#wg13a)"/>
+      <text x="180" y="88" text-anchor="middle" font-size="9" fill="#1FC8A5">有 ✓</text>
+      <rect x="200" y="76" width="72" height="44" rx="8" fill="#7FB4F0"/>
+      <text x="236" y="96" text-anchor="middle" font-size="10" fill="white">執行</text>
+      <text x="236" y="110" text-anchor="middle" font-size="9" fill="#D4E8F8">工具函式</text>
+      <line x1="272" y1="98" x2="296" y2="98" stroke="#7FB4F0" stroke-width="2.5" marker-end="url(#wg13a)"/>
+      <rect x="300" y="76" width="52" height="44" rx="8" fill="#FFF4E0" stroke="#FFD27A" stroke-width="1.5"/>
+      <text x="326" y="94" text-anchor="middle" font-size="9" fill="#153B6B">Tool</text>
+      <text x="326" y="108" text-anchor="middle" font-size="9" fill="#153B6B">Msg</text>
+      <path d="M326 120 Q326 174 42 170 Q42 158 42 124" fill="none" stroke="#7FB4F0" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#wg13a)"/>
+      <text x="184" y="168" text-anchor="middle" font-size="9" fill="#52708A">loop 再送一次</text>
+      <line x1="128" y1="118" x2="128" y2="156" stroke="#153B6B" stroke-width="2.5" marker-end="url(#wg13a)"/>
+      <text x="140" y="142" font-size="9" fill="#153B6B">沒有 ✗</text>
+      <rect x="76" y="162" width="104" height="32" rx="8" fill="#153B6B"/>
+      <text x="128" y="182" text-anchor="middle" font-size="10" fill="white">最終文字回覆</text>
+    </svg>

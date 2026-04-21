@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <rect width="1600" height="900" fill="#F7FBFF"/>
+  <circle cx="1310" cy="160" r="90" fill="#E4F7F4"/>
+  <circle cx="250" cy="760" r="78" fill="#EAF3FF"/>
+
+  <rect x="220" y="180" width="620" height="420" rx="30" fill="#173C6C"/>
+  <rect x="250" y="214" width="560" height="330" rx="18" fill="#0F2747"/>
+  <rect x="250" y="214" width="560" height="42" rx="18" fill="#1C4D86"/>
+  <circle cx="285" cy="236" r="7" fill="#FF8A65"/>
+  <circle cx="310" cy="236" r="7" fill="#FFD166"/>
+  <circle cx="335" cy="236" r="7" fill="#53D1B6"/>
+
+  <rect x="310" y="300" width="180" height="54" rx="18" fill="#FFFFFF"/>
+  <rect x="332" y="318" width="104" height="12" rx="6" fill="#173C6C"/>
+  <rect x="332" y="338" width="130" height="10" rx="5" fill="#8EBEF3"/>
+  <polygon points="352,352 370,352 360,368" fill="#FFFFFF"/>
+
+  <rect x="520" y="386" width="210" height="66" rx="20" fill="#1FC8A5"/>
+  <rect x="546" y="408" width="104" height="12" rx="6" fill="#FFFFFF"/>
+  <rect x="546" y="428" width="138" height="10" rx="5" fill="#D9F7F1"/>
+  <polygon points="672,452 690,452 680,468" fill="#1FC8A5"/>
+
+  <rect x="310" y="484" width="210" height="66" rx="20" fill="#FFFFFF"/>
+  <rect x="334" y="505" width="134" height="12" rx="6" fill="#173C6C"/>
+  <rect x="334" y="526" width="158" height="10" rx="5" fill="#8EBEF3"/>
+
+  <g transform="translate(980 180)">
+    <rect x="0" y="120" width="300" height="340" rx="36" fill="#FFFFFF" stroke="#D7E7F7" stroke-width="6"/>
+    <circle cx="150" cy="210" r="72" fill="#1FC8A5"/>
+    <circle cx="124" cy="198" r="11" fill="#FFFFFF"/>
+    <circle cx="176" cy="198" r="11" fill="#FFFFFF"/>
+    <path d="M118 236 Q150 262 182 236" fill="none" stroke="#FFFFFF" stroke-width="10" stroke-linecap="round"/>
+    <rect x="64" y="324" width="172" height="24" rx="12" fill="#173C6C"/>
+    <rect x="82" y="366" width="136" height="16" rx="8" fill="#8DBEF3"/>
+    <rect x="102" y="396" width="96" height="16" rx="8" fill="#72CDBA"/>
+  </g>
+
+  <g fill="none" stroke="#1FC8A5" stroke-width="10" stroke-linecap="round">
+    <path d="M840 386 C900 350 930 330 980 330"/>
+    <path d="M980 522 C920 560 890 590 840 590"/>
+  </g>
+  <g fill="#1FC8A5">
+    <polygon points="970,320 994,330 970,340"/>
+    <polygon points="850,580 826,590 850,600"/>
+  </g>
+</svg>
