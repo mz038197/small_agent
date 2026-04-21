@@ -1,0 +1,17 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Node (教學簡報建置依賴，以 lockfile 還原)
+node_modules/
+
+# 本機對話存檔（WG-12／WG-13 執行產物，勿提交）
+session.jsonl
+.worktrees/
