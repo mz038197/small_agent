@@ -1,0 +1,97 @@
+# Basic Usage
+
+## Opening the Chat Panel
+
+You can open the Agent Client chat panel in two ways:
+
+- **Ribbon Icon**: Click the robot icon in the left ribbon
+
+<p align="center">
+  <img src="/images/ribbon-icon.webp" alt="Ribbon Icon" />
+</p>
+
+- **Command Palette**: Open the command palette (`Cmd/Ctrl + P`) and search for **"Open chat view"**
+
+The chat panel opens in the right sidebar.
+
+## Sending Messages
+
+1. Type your message in the input field at the bottom
+2. Press `Enter` or click the send button
+3. Wait for the agent's response
+
+<p align="center">
+  <img src="/images/sending-messages.webp" alt="Sending Messages"  width="400" />
+</p>
+
+## Sending Images and Files
+
+You can attach images and files to your messages by pasting or dragging and dropping.
+
+1. **Paste**: Copy a file or image and paste (`Cmd/Ctrl + V`) in the input field
+2. **Drag and Drop**: Drag files directly onto the input area
+
+Attached files appear as thumbnails or file icons below the text area. Click the **×** to remove.
+
+<p align="center">
+  <img src="/images/sending-images.webp" alt="Sending Images and Files" width="400" />
+</p>
+
+::: tip
+Embedding images requires agent support. Non-image files are always sent as file path references.
+:::
+
+See [Sending Images and Files](/usage/sending-images) for more details.
+
+## Switching Agents
+
+To switch agents for the current view:
+
+1. Click the **⋮** (ellipsis) menu in the chat header
+2. Under **"Switch agent"**, select the agent you want to use
+
+This is a one-time change for that view only.
+
+<p align="center">
+  <img src="/images/switch-agent.webp" alt="Switch agent menu" width="400" />
+</p>
+
+::: tip
+To change the default agent for new chat views, go to **Settings → Agent Client → Default agent**.
+
+<img src="/images/switch-default-agent.webp" alt="Default agent setting" />
+:::
+
+## Multiple Chat Views
+
+You can open multiple chat views to run independent conversations simultaneously. Each view has its own agent process and session.
+
+See [Multi-Session Chat](/usage/multi-session) for details on:
+- Opening multiple views
+- Broadcast commands
+- Focus navigation
+
+## Floating Chat
+
+A draggable, resizable chat window that floats over your workspace. Enable it in **Settings → Agent Client → Floating chat**.
+
+See [Floating Chat](/usage/floating-chat) for details.
+
+## Changing Models and Modes
+
+Below the input field, you'll find dropdowns to:
+
+- **Change Model**: Switch between different AI models (e.g., Sonnet, Haiku for Claude)
+- **Change Mode**: Switch agent modes (e.g., Plan Mode)
+
+::: tip
+Available models and modes depend on the active agent.
+:::
+
+## Starting a New Chat
+
+Click the **New Chat** button in the header to start a fresh conversation. The previous chat can optionally be exported (see Settings).
+
+## Stopping Generation
+
+If the agent is generating a response and you want to stop it, click the **Stop** button that appears during generation.
