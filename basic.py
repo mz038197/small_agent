@@ -1,4 +1,4 @@
-"""課堂示範：WG-12～WG-17 對話脈絡 JSONL、SystemMessage、字元預算裁切（WG-16）、長期記憶整併（WG-17）；WG-13 工具 ReAct 見 memory_react_agent.py（對照 challenges-wiki-guided.md）。"""
+"""課堂示範：WG-12～WG-18 對話脈絡 JSONL、SystemMessage、字元預算裁切（WG-16）、長期記憶整併（WG-17）；WG-13 ReAct 見 memory_react_agent.py；WG-19 檔案／exec 工具見 wiki_wg_workshop.py（對照 challenges-wiki-guided.md，教學順序為 WG-13 後接 WG-19 再進 JSONL）。"""
 
 from __future__ import annotations
 
