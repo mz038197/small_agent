@@ -1,17 +1,71 @@
-# Python-generated files
+# Python
 __pycache__/
-*.py[oc]
+*.py[cod]
+*$py.class
+*.so
+.Python
 build/
+develop-eggs/
 dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
 wheels/
-*.egg-info
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+
+# 測試／型別／覆蓋率
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.tox/
+.nox/
 
 # Virtual environments
+.venv/
 .venv
+venv/
+ENV/
+env/
 
-# Node (教學簡報建置依賴，以 lockfile 還原)
+# 本機／工作坊產物
+.memory
+session.jsonl
+session_*.jsonl
+.worktrees/
+
+# 環境變數（含 API key，勿提交）
+.env
+.env.local
+.env.*.local
+
+# Node（教學簡報建置依賴，以 lockfile 還原）
 node_modules/
 
-# 本機對話存檔（WG-12／WG-13 執行產物，勿提交）
-session.jsonl
-.worktrees/
+# Jupyter
+.ipynb_checkpoints/
+
+# 編輯器與本機工具暫存
+.cursor/tmp/
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
