@@ -1,6 +1,6 @@
 """
 Wiki 挑戰題合併實作（challenges-wiki-guided.md WG-04～WG-20）：
-ReAct + JSONL 持久化、字元預算裁切、長期記憶整併、送模前 transcript 管線（WG-17）、
+ReAct 每輪以 `stream` 串流印出、JSONL 持久化、字元預算裁切、長期記憶整併、送模前 transcript 管線（WG-17）、
 workspace 檔案／exec 工具（WG-19）、SkillsLoader 與 prepare_call／cast（WG-20）。
 無 OPENAI_API_KEY 時早退不呼叫 API（WG-05～07）。
 """
@@ -19,7 +19,15 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+    message_chunk_to_message,
+)
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
@@ -172,7 +180,7 @@ def build_skills_summary(entries: list[SkillEntry]) -> str:
 def build_classroom_base_prompt() -> str:
     """WG-12 基底：課堂規則與顯示名（工具約束可另段組入 compose_system_string 或依 tool 描述）。"""
     system_text = (
-        "你是課堂程式助教。請使用繁體中文；先給一句重點結論，必要時再補一句說明。"
+        "你是課堂程式助教。請使用繁體中文。"
     )
     nick = os.getenv("ASSISTANT_DISPLAY_NAME") or "法鬥超人"
     if isinstance(nick, str) and not nick.strip():
@@ -340,21 +348,34 @@ def _exec_impl(params: dict[str, Any]) -> str:
     if any(b in lowered for b in blocked):
         return "Error: blocked dangerous command"
     try:
-        # Windows 預設 locale（如 cp950）解 PIPE 易在子程序輸出 UTF-8 時崩潰；改為 UTF-8 + replace。
-        result = subprocess.run(
-            command,
-            cwd=str(WORKSPACE.resolve()),
-            shell=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
-        out = ((result.stdout or "") + (result.stderr or "")).strip()
+        child_env = os.environ.copy()
+        # Windows 子程序常見：主控台 UTF-8 與 Python 預設編碼不一致，PIPE 解碼失敗或變空。
+        child_env.setdefault("PYTHONUTF8", "1")
+        child_env.setdefault("PYTHONIOENCODING", "utf-8")
+
+        run_kw: dict[str, Any] = {
+            "cwd": str(WORKSPACE.resolve()),
+            "shell": True,
+            "capture_output": True,
+            "text": True,
+            "encoding": "utf-8",
+            "errors": "replace",
+            "timeout": timeout,
+            "env": child_env,
+        }
+
+        if os.name == "nt":
+            # 隱藏子程序控制台視窗；仍透過 PIPE 擷取 stdout/stderr。
+            run_kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+        result = subprocess.run(command, **run_kw)
+        raw_out = (result.stdout or "") + (result.stderr or "")
+        out = raw_out.strip()
         cap = 4000
         if len(out) > cap:
             out = out[:cap] + "\n\n[truncated]"
+        if not out:
+            out = "(no stdout or stderr; command finished with no captured output)"
         return f"exit_code={result.returncode}\n{out}"
     except Exception as e:
         return f"Error: {e}"
@@ -1108,13 +1129,72 @@ def save_session_jsonl(
     return meta
 
 
+def _flatten_ai_chunk_text(content: Any) -> str:
+    """從單一 AIMessageChunk.content 抽出可當成純文字串流處理的字串（供略過開頭空白）。"""
+    if not content:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+        return "".join(parts)
+    return str(content)
+
+
+def _print_ai_stream_content(content: Any) -> None:
+    """將單一 chunk 的可讀文字印到 stdout（WG-10：end=''、flush）。"""
+    if not content:
+        return
+    if isinstance(content, str):
+        print(content, end="", flush=True)
+        return
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, str):
+                print(block, end="", flush=True)
+            elif isinstance(block, dict):
+                if block.get("type") == "text":
+                    print(block.get("text", ""), end="", flush=True)
+
+
+class _LeadingStripStreamPrinter:
+    """略過模型在訊息開頭常送的連續換行，避免「助手：」下方空白過多。"""
+
+    __slots__ = ("_pending",)
+
+    def __init__(self) -> None:
+        self._pending = True
+
+    def emit(self, content: Any) -> None:
+        if not content:
+            return
+        if self._pending:
+            flat = _flatten_ai_chunk_text(content)
+            if not flat:
+                return
+            trimmed = flat.lstrip()
+            if not trimmed:
+                return
+            print(trimmed, end="", flush=True)
+            self._pending = False
+            return
+        _print_ai_stream_content(content)
+
+
 def run_react_turn(
     llm_tools: ChatOpenAI,
     system_text: str,
     history: list[BaseMessage],
     user_text: str,
+    *,
+    stream_stdout: bool = True,
 ) -> tuple[str, list[BaseMessage]]:
-    """WG-13：ReAct 多段 invoke；回傳本輪自 Human 起之訊息列。"""
+    """WG-13：ReAct 多段呼叫；最後一則與含 tool_calls 之中間步皆用 stream 累積為 AIMessage。"""
     human_message = HumanMessage(content=user_text)
     messages: list[BaseMessage] = [
         SystemMessage(content=system_text),
@@ -1132,8 +1212,18 @@ def run_react_turn(
             keep_recent_tools=MODEL_KEEP_RECENT_TOOLS,
         )
         messages_for_invoke = openai_dicts_to_lc_messages(pruned)
-        response = llm_tools.invoke(messages_for_invoke)
+        acc: AIMessageChunk | None = None
+        stream_out = _LeadingStripStreamPrinter() if stream_stdout else None
+        for chunk in llm_tools.stream(messages_for_invoke):
+            acc = chunk if acc is None else acc + chunk
+            if stream_out is not None:
+                stream_out.emit(getattr(chunk, "content", None))
+        if acc is None:
+            raise RuntimeError("模型串流未回傳任何 chunk")
+        response = message_chunk_to_message(acc)
         if response.tool_calls:
+            if stream_stdout:
+                print()
             messages.append(response)
             reg = get_lesson_registry()
             for tc in response.tool_calls:
@@ -1249,7 +1339,7 @@ def main() -> None:
 
     if api_key:
         print(
-            "已讀到 API 金鑰設定（內容不顯示）；進入對話（ReAct + JSONL、"
+            "已讀到 API 金鑰設定（內容不顯示）；進入對話（ReAct + 串流輸出 + JSONL、"
             "WG-16/17 預算與長期記憶、WG-18 Skills；輸入 quit / exit / q 結束）。"
         )
     else:
@@ -1283,7 +1373,7 @@ def main() -> None:
 
         human_message = HumanMessage(content=user_text)
         system_str = compose_system_string(loader)
-        print("system_str: ", system_str)
+        
         past0 = history[last_consolidated:]
         cost = request_cost_chars(system_str, past0, human_message)
 
@@ -1322,10 +1412,11 @@ def main() -> None:
         system_str = compose_system_string(loader)
         past = history[last_consolidated:]
 
+        print("\n\n助手：", end="", flush=True)
         reply_text, turn_messages = run_react_turn(
             llm_tools, system_str, past, user_text
         )
-        print("\n\n助手：", reply_text)
+        print()
 
         history.extend(turn_messages)
         if session_meta is None:
