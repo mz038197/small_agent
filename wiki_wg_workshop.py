@@ -6,8 +6,8 @@
 - WG-08～11：`ChatOpenAI`、互動迴圈、串流 `stream`、脈絡 `history`（送模 `context_messages`）
 - WG-12：`build_system_prompt`、`SystemMessage` 與 `history` 分離（system 不進 JSONL）
 - WG-13：`@tool`、`bind_tools`、ReAct 內層迴圈、`ToolMessage`
-- WG-19：workspace 路徑解析、五支檔案／shell 工具 + `add_numbers`，皆以 LangChain `@tool` 暴露（無獨立 ToolRegistry）；教案順序緊接 WG-13
-- WG-14～15：每輪後 `save_session_jsonl`；啟動時 `load_session_jsonl`（略過壞行）
+- WG-14：workspace 路徑解析、五支檔案／shell 工具 + `add_numbers`，皆以 LangChain `@tool` 暴露（無獨立 ToolRegistry）；教案順序緊接 WG-13
+- WG-15～16：每輪後 `save_session_jsonl`；啟動時 `load_session_jsonl`（略過壞行）
 
 執行：專案根目錄 `uv run wiki_wg_workshop.py`
 預設對話檔：`session_wiki_wg.jsonl`（可用環境變數 `SESSION_JSONL_PATH` 覆寫）
@@ -36,7 +36,7 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
 # ---------------------------------------------------------------------------
-# WG-13／WG-19：LangChain `@tool`（workspace 檔案／shell + 算術）
+# WG-13／WG-14：LangChain `@tool`（workspace 檔案／shell + 算術）
 # ---------------------------------------------------------------------------
 
 WORKSPACE = Path.cwd().resolve()
@@ -177,15 +177,13 @@ _TOOL_BY_NAME: dict[str, Any] = {t.name: t for t in TOOLS}
 
 
 def build_system_prompt() -> str:
-    system_text = (
-        "你是課堂程式助教。請使用繁體中文。\n"
-    )
-    nick = os.getenv("ASSISTANT_DISPLAY_NAME", "").strip() or "法鬥超人"
+    system_text = "你是課堂程式助教，並請使用繁體中文。"
+    nick = "法鬥超人"
     return f"{system_text}\n\n【本場次顯示名稱】{nick}"
 
 
 # ---------------------------------------------------------------------------
-# WG-14～15：JSONL（第一行 metadata；不寫入 SystemMessage）
+# WG-15～16：JSONL（第一行 metadata；不寫入 SystemMessage）
 # ---------------------------------------------------------------------------
 
 
@@ -472,9 +470,9 @@ def main() -> None:
     session_path = os.getenv("SESSION_JSONL_PATH", "session_wiki_wg.jsonl")
     history, session_meta = load_session_jsonl(session_path)
     if history:
-        print(f"已從 {session_path!r} 載入 {len(history)} 則訊息（WG-15）。")
+        print(f"已從 {session_path!r} 載入 {len(history)} 則訊息（WG-16）。")
     else:
-        print(f"尚無可載入歷史或檔不存在；自空 history 開始（可接 WG-14 寫入）。")
+        print(f"尚無可載入歷史或檔不存在；自空 history 開始（可接 WG-15 寫入）。")
 
     llm = ChatOpenAI(model="gpt-5.4-mini", temperature=0.2)
     llm_tools = llm.bind_tools(TOOLS)
