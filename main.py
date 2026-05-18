@@ -1,20 +1,20 @@
 """
-Wiki 挑戰題合併實作（challenges-wiki-guided.md WG-04～WG-20）：
-ReAct 每輪以 `stream` 串流印出、JSONL 持久化、字元預算裁切、長期記憶整併、送模前 transcript 管線（WG-17）、
-workspace 檔案／exec 工具（WG-19）、SkillsLoader 與 prepare_call／cast（WG-20）。
-無 OPENAI_API_KEY 時早退不呼叫 API（WG-05～07）。
+課堂合併作答：challenges-wiki-basic-advanced.md WG-01～WG-21
+
+執行：專案根目錄 `uv run main.py`
+環境：`.env` 內 `OPENAI_API_KEY`；可選 `SESSION_JSONL_PATH`、`TOKEN_BUDGET`、`CHAT_MODEL`、`VISION_MODEL`
+附圖：輸入 `/image 相對路徑` 後同一行或下一行輸入文字問題（vision 模型預設 gpt-4o）
 """
 
-from __future__ import annotations
-
+import base64
 import copy
 import json
 import os
+import platform
 import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -28,48 +28,289 @@ from langchain_core.messages import (
     ToolMessage,
     message_chunk_to_message,
 )
-from langchain_core.tools import tool
+from langchain_core.tools import BaseTool, tool
 from langchain_openai import ChatOpenAI
 
-# --- 專案根路徑（WG-19/20：workspace、skills / builtin_skills）---
-ROOT = Path(__file__).resolve().parent
-WORKSPACE = ROOT
+# ---------------------------------------------------------------------------
+# WG-01～03：進入點、變數、f-string（暖身示範，main 內亦呼叫）
+# ---------------------------------------------------------------------------
 
-# --- memory/ 與長度、重試（WG-18 長期記憶）---
-_MEMORY_DIR = ROOT / "memory"
-_MEMORY_FILE = _MEMORY_DIR / "MEMORY.md"
-_HISTORY_FILE = _MEMORY_DIR / "HISTORY.md"
-MEMORY_MAX_CHARS = 6000
-CONSOLIDATION_MAX_RETRIES = 3
-CONSOLIDATION_TEMPERATURE = 0.1
+PROJECT_ROOT = Path(__file__).resolve().parent
+WORKSPACE = PROJECT_ROOT.resolve()
+MEMORY_DIR = PROJECT_ROOT / "memory"
+MEMORY_FILE = MEMORY_DIR / "MEMORY.md"
+HISTORY_FILE = MEMORY_DIR / "HISTORY.md"
 
-# --- WG-17：送模用 OpenAI dict transcript 管線（環境變數可調）---
-COMPACTABLE_TOOL_NAMES = frozenset(
-    {"read_file", "exec", "grep", "glob", "web_search", "web_fetch", "list_dir"}
-)
+TOKEN_BUDGET = int(os.getenv("TOKEN_BUDGET", "8000"))
+CONSOLIDATION_MAX_RETRIES = int(os.getenv("CONSOLIDATION_MAX_RETRIES", "3"))
+MEMORY_MAX_CHARS = int(os.getenv("MEMORY_MAX_CHARS", "6000"))
+CHAT_MODEL = os.getenv("CHAT_MODEL", "gpt-5.4-mini")
+VISION_MODEL = os.getenv("VISION_MODEL", "gpt-5.4-mini")
 
 
-def _env_int(name: str, default: int) -> int:
+def print_wg01_to_03_banner() -> None:
+    """WG-01～03：進入點區塊內變數與 f-string 問候。"""
+    agent_name = "法鬥超人"
+    message = f"Hello, 我是{agent_name}，很開心認識你!"
+    print(message)
+
+
+# ---------------------------------------------------------------------------
+# WG-04：頂層匯入（langchain_openai、python-dotenv 見 pyproject.toml）
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# WG-13／WG-14：@tool 工具組
+# ---------------------------------------------------------------------------
+
+
+def resolve_workspace_path(path: str) -> Path:
+    raw = Path(path)
+    if raw.is_absolute():
+        raise PermissionError("absolute paths are not allowed")
+    target = (WORKSPACE / path).resolve()
     try:
-        return max(0, int(os.getenv(name, str(default))))
-    except ValueError:
-        return default
+        target.relative_to(WORKSPACE)
+    except ValueError as e:
+        raise PermissionError(f"path is outside workspace: {path}") from e
+    return target
 
 
-MODEL_TRANSCRIPT_MAX_CHARS = _env_int("MODEL_TRANSCRIPT_MAX_CHARS", 120_000)
-MODEL_MAX_TOOL_RESULT_CHARS = _env_int("MODEL_MAX_TOOL_RESULT_CHARS", 8000)
-MODEL_KEEP_RECENT_TOOLS = _env_int("MODEL_KEEP_RECENT_TOOLS", 8)
+@tool
+def add_two(a: int, b: int) -> int:
+    """兩個整數相加並回傳和。凡涉及兩個整數相加必須呼叫此工具，不要只在文字裡心算。"""
+    return a + b
 
 
-def _token_budget() -> int:
-    raw = os.getenv("TOKEN_BUDGET", "8000")
+@tool("read_file")
+def read_file(path: str, offset: int = 1, limit: int = 200) -> str:
+    """讀取 workspace 內 UTF-8 文字檔，回傳帶行號內容。"""
     try:
-        return max(1, int(raw))
-    except ValueError:
-        return 8000
+        target = resolve_workspace_path(path)
+        if not target.is_file():
+            return f"Error: not a file: {path}"
+        lines = target.read_text(encoding="utf-8").splitlines()
+        start = max(offset - 1, 0)
+        end = min(start + limit, len(lines))
+        return "\n".join(f"{i + 1}| {line}" for i, line in enumerate(lines[start:end], start))
+    except Exception as e:
+        return f"Error: {e}"
 
 
-# --- WG-20：資料結構與 frontmatter ---
+@tool("write_file")
+def write_file(path: str, content: str) -> str:
+    """整檔覆寫寫入 UTF-8 文字檔（必要時建立父資料夾）。"""
+    try:
+        target = resolve_workspace_path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        return f"wrote {len(content)} characters to {path}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@tool("edit_file")
+def edit_file(path: str, old_text: str, new_text: str, replace_all: bool = False) -> str:
+    """在既有檔案中把 old_text 換成 new_text（預設僅單次替換）。"""
+    try:
+        target = resolve_workspace_path(path)
+        text = target.read_text(encoding="utf-8")
+        count = text.count(old_text)
+        if count == 0:
+            return "Error: old_text not found"
+        if count > 1 and not replace_all:
+            return "Error: old_text appears multiple times"
+        target.write_text(
+            text.replace(old_text, new_text, -1 if replace_all else 1),
+            encoding="utf-8",
+        )
+        return f"edited {path}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@tool("list_dir")
+def list_dir(path: str, recursive: bool = False, max_entries: int = 200) -> str:
+    """列出 workspace 內資料夾內容。"""
+    try:
+        root = resolve_workspace_path(path)
+        if not root.is_dir():
+            return f"Error: not a directory: {path}"
+        iterator = root.rglob("*") if recursive else root.iterdir()
+        entries = [str(item.relative_to(WORKSPACE)) for item in iterator][:max_entries]
+        return "\n".join(entries) if entries else "(empty)"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+@tool("exec")
+def exec_workspace(command: str, timeout: int = 30) -> str:
+    """在專案根目錄（workspace）執行單行 shell 指令，回傳 exit code 與輸出摘要。"""
+    blocked = ("rm -rf", "del /f", "rmdir /s", "format", "shutdown")
+    lowered = command.lower()
+    if any(part in lowered for part in blocked):
+        return "Error: blocked dangerous command (safety limit)"
+
+    child_env = os.environ.copy()
+    child_env.setdefault("PYTHONUTF8", "1")
+    child_env.setdefault("PYTHONIOENCODING", "utf-8")
+
+    run_kw: dict[str, Any] = {
+        "cwd": str(WORKSPACE),
+        "shell": True,
+        "capture_output": True,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+        "timeout": timeout,
+        "env": child_env,
+    }
+    if os.name == "nt":
+        run_kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+    try:
+        result = subprocess.run(command, **run_kw)
+        output = ((result.stdout or "") + (result.stderr or "")).strip()
+        cap = 4000
+        if len(output) > cap:
+            output = output[:cap] + "\n\n[truncated]"
+        if not output:
+            output = "(no stdout or stderr; command finished with no captured output)"
+        return f"exit_code={result.returncode}\n{output}"
+    except Exception as e:
+        return f"Error: {e}"
+
+
+TOOLS: list[BaseTool] = [
+    add_two,
+    read_file,
+    write_file,
+    edit_file,
+    list_dir,
+    exec_workspace,
+]
+_TOOL_BY_NAME: dict[str, BaseTool] = {t.name: t for t in TOOLS}
+
+
+# ---------------------------------------------------------------------------
+# WG-20：工具參數 cast／validate／prepare_tool_call
+# ---------------------------------------------------------------------------
+
+
+def _tool_input_schema(tool_obj: BaseTool) -> dict[str, Any]:
+    schema = getattr(tool_obj, "args_schema", None)
+    if schema is not None and hasattr(schema, "model_json_schema"):
+        return schema.model_json_schema()
+    return {"type": "object", "properties": {}, "required": []}
+
+
+def cast_params(params: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
+    props = schema.get("properties") or {}
+    out = dict(params)
+    for key, val in list(out.items()):
+        spec = props.get(key) or {}
+        t = spec.get("type")
+        if t == "integer" and isinstance(val, str):
+            try:
+                out[key] = int(val)
+            except ValueError:
+                pass
+        elif t == "number" and isinstance(val, str):
+            try:
+                out[key] = float(val)
+            except ValueError:
+                pass
+        elif t == "boolean" and isinstance(val, str):
+            if val.lower() in ("true", "1", "yes"):
+                out[key] = True
+            elif val.lower() in ("false", "0", "no"):
+                out[key] = False
+    return out
+
+
+def validate_params(params: dict[str, Any], schema: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    props = schema.get("properties") or {}
+    required = schema.get("required") or []
+    for r in required:
+        if r not in params:
+            errors.append(f"missing required field: {r}")
+    for key, val in params.items():
+        if key not in props:
+            errors.append(f"unknown field: {key}")
+            continue
+        t = props[key].get("type")
+        if t == "integer" and not isinstance(val, int):
+            errors.append(f"{key} must be integer")
+        elif t == "number" and not isinstance(val, (int, float)):
+            errors.append(f"{key} must be number")
+        elif t == "boolean" and not isinstance(val, bool):
+            errors.append(f"{key} must be boolean")
+        elif t == "string" and not isinstance(val, str):
+            errors.append(f"{key} must be string")
+    return errors
+
+
+def prepare_tool_call(
+    name: str, raw: Any
+) -> tuple[BaseTool | None, dict[str, Any], str | None]:
+    if not isinstance(raw, dict):
+        return None, {}, f"tool args must be object, got {type(raw).__name__}"
+    tool_obj = _TOOL_BY_NAME.get(name)
+    if tool_obj is None:
+        return None, {}, f"unknown tool: {name}"
+    schema = _tool_input_schema(tool_obj)
+    params = cast_params(dict(raw), schema)
+    errs = validate_params(params, schema)
+    if errs:
+        return tool_obj, params, "; ".join(errs)
+    return tool_obj, params, None
+
+
+# ---------------------------------------------------------------------------
+# WG-12／WG-20：system prompt
+# ---------------------------------------------------------------------------
+
+
+def _runtime_env_note() -> str:
+    """WG-12：啟動時偵測 OS，供 Agent 選擇 shell 寫法。"""
+    sys_name = platform.system()  # Windows / Darwin / Linux
+    shell_hint = (
+        "exec 在 PowerShell 下執行；勿用 <<、heredoc、bash -c。"
+        if os.name == "nt"
+        else "exec 在系統 shell 下執行；多行腳本仍請 write_file 後 uv run。"
+    )
+    return (
+        f"\n\n【執行環境】{sys_name}（os.name={os.name}）；專案根目錄為目前工作目錄。"
+        f"{shell_hint}"
+    )
+
+
+def get_identity() -> str:
+    """WG-12：課堂人設（規則、顯示名、執行環境、exec 注意）。"""
+    system_text = "你是課堂程式助教，並請使用繁體中文。"
+    nick = "法鬥超人"
+    exec_note = (
+        "\n\n【exec 注意】"
+        "\n- 請依上方【執行環境】選擇相容的 shell 指令，勿假設為 Linux Bash。"
+        "\n- 若要執行 Python：先用 write_file 寫入 .py，再 exec「uv run python 相對路徑」。"
+    )
+    return (
+        f"{system_text}\n\n【本場次顯示名稱】{nick}"
+        f"{_runtime_env_note()}{exec_note}"
+    )
+
+
+def memory_block_for_system() -> str:
+    """WG-19：讀取 MEMORY.md 組長期記憶區塊。"""
+    if not MEMORY_FILE.is_file():
+        return ""
+    body = MEMORY_FILE.read_text(encoding="utf-8").strip()
+    if not body:
+        return ""
+    if len(body) > MEMORY_MAX_CHARS:
+        body = body[-MEMORY_MAX_CHARS:]
+    return f"## Long-term Memory\n\n{body}"
 
 
 @dataclass
@@ -83,74 +324,51 @@ class SkillEntry:
 
 
 def split_frontmatter(text: str) -> tuple[dict[str, str], str]:
-    """簡化 frontmatter：--- ... ---；無則回傳 ({}, 全文)。"""
-    if not text.startswith("---"):
-        return {}, text
-
     lines = text.splitlines()
-    end: int | None = None
-    for index in range(1, len(lines)):
-        if lines[index].strip() == "---":
-            end = index
+    if not lines or lines[0].strip() != "---":
+        return {}, text.strip()
+    end = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
             break
     if end is None:
-        return {}, text
-
+        return {}, text.strip()
     meta: dict[str, str] = {}
     for raw in lines[1:end]:
         if ":" not in raw:
             continue
         key, value = raw.split(":", 1)
         meta[key.strip()] = value.strip()
-
     body = "\n".join(lines[end + 1 :]).strip()
     return meta, body
 
 
 class SkillsLoader:
-    """掃描 workspace/skills 與 builtin_skills；同名時 workspace 優先。"""
-
     def __init__(self, workspace: Path, builtin_skills_dir: Path) -> None:
         self.workspace_skills = workspace / "skills"
         self.builtin_skills = builtin_skills_dir
 
-    def _entries_from_dir(
-        self, root: Path, source: str, skip: set[str]
-    ) -> list[SkillEntry]:
+    def _entries_from_dir(self, root: Path, source: str, skip: set[str]) -> list[SkillEntry]:
         if not root.exists():
             return []
-
         entries: list[SkillEntry] = []
-        for skill_dir in sorted(root.iterdir(), key=lambda p: p.name):
-            if not skill_dir.is_dir():
-                continue
+        for skill_dir in sorted(root.iterdir()):
             skill_file = skill_dir / "SKILL.md"
-            if not skill_file.exists():
+            if not skill_dir.is_dir() or not skill_file.exists():
                 continue
-            name = skill_dir.name
-            if name in skip:
+            if skill_dir.name in skip:
                 continue
-
             text = skill_file.read_text(encoding="utf-8")
             meta, body = split_frontmatter(text)
+            name = skill_dir.name
             description = meta.get("description") or name
             always = meta.get("always", "false").lower() == "true"
-            entries.append(
-                SkillEntry(
-                    name=name,
-                    path=skill_file.resolve(),
-                    source=source,
-                    description=description,
-                    always=always,
-                    body=body,
-                )
-            )
+            entries.append(SkillEntry(name, skill_file, source, description, always, body))
         return entries
 
     def list_skills(self) -> list[SkillEntry]:
-        workspace_entries = self._entries_from_dir(
-            self.workspace_skills, "workspace", set()
-        )
+        workspace_entries = self._entries_from_dir(self.workspace_skills, "workspace", set())
         workspace_names = {e.name for e in workspace_entries}
         builtin_entries = self._entries_from_dir(
             self.builtin_skills, "builtin", workspace_names
@@ -166,797 +384,52 @@ class SkillsLoader:
 
 
 def build_skills_summary(entries: list[SkillEntry]) -> str:
-    """僅非 always 的 skill 各一行摘要（名稱、description、路徑）。"""
     summarized = [e for e in entries if not e.always]
     if not summarized:
         return ""
-    lines = [
-        f"- **{e.name}** — {e.description} `{e.path}`"
-        for e in summarized
-    ]
+    lines = [f"- **{e.name}** — {e.description} `{e.path}`" for e in summarized]
     return "\n".join(lines)
 
 
-def build_classroom_base_prompt() -> str:
-    """WG-12 基底：課堂規則與顯示名（工具約束可另段組入 compose_system_string 或依 tool 描述）。"""
-    system_text = (
-        "你是課堂程式助教。請使用繁體中文。"
-    )
-    nick = os.getenv("ASSISTANT_DISPLAY_NAME") or "法鬥超人"
-    if isinstance(nick, str) and not nick.strip():
-        nick = "法鬥超人"
-
-    return f"{system_text}\n\n【本場次顯示名稱】{nick}"
-
-
-def _ensure_memory_dir() -> None:
-    _MEMORY_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def _ensure_memory_files() -> None:
-    _ensure_memory_dir()
-    _MEMORY_FILE.touch(exist_ok=True)
-    _HISTORY_FILE.touch(exist_ok=True)
-
-
-def read_long_term() -> str:
-    if not _MEMORY_FILE.exists():
-        return ""
-    return _MEMORY_FILE.read_text(encoding="utf-8")
-
-
-def write_long_term(content: str) -> None:
-    _ensure_memory_files()
-    _MEMORY_FILE.write_text(content, encoding="utf-8")
-
-
-def append_history(entry: str, *, failed: bool = False) -> None:
-    _ensure_memory_files()
-    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-    one_line = re.sub(r"\s+", " ", entry.strip())
-    if failed:
-        raw = one_line[:500] if len(one_line) > 500 else one_line
-        line = f"[{ts}] [CONSOLIDATION-FAILED] raw:{raw}\n"
-    else:
-        line = f"[{ts}] {one_line}\n"
-    with _HISTORY_FILE.open("a", encoding="utf-8") as f:
-        f.write(line)
-
-
-def memory_block_for_system() -> str:
-    """WG-18：有內文才加 ## Long-term Memory；超長由尾端截斷。"""
-    body = read_long_term().strip()
-    if not body:
-        return ""
-    if len(body) > MEMORY_MAX_CHARS:
-        body = body[-MEMORY_MAX_CHARS:]
-    return f"## Long-term Memory\n\n{body}"
-
-
-def compose_system_string(loader: SkillsLoader) -> str:
-    """
-    送主模型／成本估算用完整 system 字串：
-    課堂基底 → 長期記憶（若有）→ Active Skills（always 正文）→ Skills 摘要與 read_file 規則（若有）。
-    """
-    parts: list[str] = [build_classroom_base_prompt()]
-
+def build_system_prompt(loader: SkillsLoader) -> str:
+    """WG-12～20：人設 + 長期記憶 + Skills，組成送模用的 system 字串。"""
+    parts: list[str] = [get_identity()]
     mem = memory_block_for_system()
     if mem:
         parts.append(mem)
-
     entries = loader.list_skills()
     active = [e for e in entries if e.always]
     if active:
-        body = "\n\n---\n\n".join(
-            f"### Skill: {e.name}\n\n{e.body}" for e in active
-        )
+        body = "\n\n---\n\n".join(f"### Skill: {e.name}\n\n{e.body}" for e in active)
         parts.append(f"# Active Skills\n\n{body}")
-
     summary = build_skills_summary(entries)
     if summary:
-        parts.append(
-            "# Skills\n\n"
-            """下列技能可擴充你的能力。若要使用某技能，請用 read_file 讀取清單中該技能路徑下的 SKILL.md。
-若該技能需額外套件或環境，請先依 SKILL.md 或專案說明安裝相依項目後再操作。\n\n"""
-            f"{summary}"
+        intro = (
+            "下列技能可擴充你的能力。若要使用某技能，請用 read_file 讀取清單中該技能路徑下的 SKILL.md。\n"
+            "若該技能需額外套件或環境，請先依 SKILL.md 或專案說明安裝相依項目後再操作。\n\n"
         )
+        parts.append("# Skills\n\n" + intro + summary)
     return "\n\n---\n\n".join(parts)
 
 
-# --- WG-19：workspace 檔案工具 + exec；WG-20：JSON Schema 子集 + cast／validate／prepare_call ---
-
-
-def resolve_workspace_path(rel: str) -> Path:
-    """相對路徑解析到 WORKSPACE 下；禁止跳出根目錄。"""
-    raw = (rel or ".").strip() or "."
-    target = (WORKSPACE / raw).resolve()
-    try:
-        target.relative_to(WORKSPACE.resolve())
-    except ValueError as e:
-        raise PermissionError(f"path is outside workspace: {rel}") from e
-    return target
-
-
-def _read_file_impl(params: dict[str, Any]) -> str:
-    path = str(params.get("path", ""))
-    offset = int(params.get("offset", 1))
-    limit = int(params.get("limit", 200))
-    try:
-        target = resolve_workspace_path(path)
-        if not target.is_file():
-            return f"Error: not a file: {path}"
-        lines = target.read_text(encoding="utf-8").splitlines()
-        start = max(offset - 1, 0)
-        end = min(start + limit, len(lines))
-        return "\n".join(f"{i + 1}| {line}" for i, line in enumerate(lines[start:end], start=start))
-    except Exception as e:
-        return f"Error: {e}"
-
-
-def _write_file_impl(params: dict[str, Any]) -> str:
-    path = str(params.get("path", ""))
-    content = str(params.get("content", ""))
-    try:
-        target = resolve_workspace_path(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
-        return f"wrote {len(content)} characters to {path}"
-    except Exception as e:
-        return f"Error: {e}"
-
-
-def _edit_file_impl(params: dict[str, Any]) -> str:
-    path = str(params.get("path", ""))
-    old_text = str(params.get("old_text", ""))
-    new_text = str(params.get("new_text", ""))
-    replace_all = bool(params.get("replace_all", False))
-    try:
-        target = resolve_workspace_path(path)
-        text = target.read_text(encoding="utf-8")
-        count = text.count(old_text)
-        if count == 0:
-            return "Error: old_text not found"
-        if count > 1 and not replace_all:
-            return "Error: old_text appears multiple times; set replace_all=true or add context"
-        new_body = text.replace(old_text, new_text, -1 if replace_all else 1)
-        target.write_text(new_body, encoding="utf-8")
-        return f"edited {path}"
-    except Exception as e:
-        return f"Error: {e}"
-
-
-def _list_dir_impl(params: dict[str, Any]) -> str:
-    path = str(params.get("path", "."))
-    recursive = bool(params.get("recursive", False))
-    max_entries = int(params.get("max_entries", 200))
-    try:
-        root = resolve_workspace_path(path)
-        if not root.is_dir():
-            return f"Error: not a directory: {path}"
-        iterator = root.rglob("*") if recursive else root.iterdir()
-        entries = [str(p.relative_to(WORKSPACE.resolve())) for p in iterator][:max_entries]
-        return "\n".join(entries) if entries else "(empty)"
-    except Exception as e:
-        return f"Error: {e}"
-
-
-def _exec_impl(params: dict[str, Any]) -> str:
-    command = str(params.get("command", ""))
-    timeout = int(params.get("timeout", 30))
-    blocked = ("rm -rf", "del /f", "rmdir /s", "format", "shutdown")
-    lowered = command.lower()
-    if any(b in lowered for b in blocked):
-        return "Error: blocked dangerous command"
-    try:
-        child_env = os.environ.copy()
-        # Windows 子程序常見：主控台 UTF-8 與 Python 預設編碼不一致，PIPE 解碼失敗或變空。
-        child_env.setdefault("PYTHONUTF8", "1")
-        child_env.setdefault("PYTHONIOENCODING", "utf-8")
-
-        run_kw: dict[str, Any] = {
-            "cwd": str(WORKSPACE.resolve()),
-            "shell": True,
-            "capture_output": True,
-            "text": True,
-            "encoding": "utf-8",
-            "errors": "replace",
-            "timeout": timeout,
-            "env": child_env,
-        }
-
-        if os.name == "nt":
-            # 隱藏子程序控制台視窗；仍透過 PIPE 擷取 stdout/stderr。
-            run_kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-        result = subprocess.run(command, **run_kw)
-        raw_out = (result.stdout or "") + (result.stderr or "")
-        out = raw_out.strip()
-        cap = 4000
-        if len(out) > cap:
-            out = out[:cap] + "\n\n[truncated]"
-        if not out:
-            out = "(no stdout or stderr; command finished with no captured output)"
-        return f"exit_code={result.returncode}\n{out}"
-    except Exception as e:
-        return f"Error: {e}"
-
-
-def _add_two_impl(params: dict[str, Any]) -> str:
-    a = int(params["a"])
-    b = int(params["b"])
-    return str(a + b)
-
-
-def _cast_scalar(value: Any, typ: str) -> Any:
-    if typ == "string":
-        if value is None:
-            return ""
-        return str(value)
-    if typ == "integer":
-        if isinstance(value, bool):
-            raise ValueError("boolean is not integer")
-        if isinstance(value, int) and not isinstance(value, bool):
-            return int(value)
-        if isinstance(value, float) and value.is_integer():
-            return int(value)
-        s = str(value).strip()
-        return int(s)
-    if typ == "number":
-        if isinstance(value, (int, float)) and not isinstance(value, bool):
-            return float(value)
-        return float(str(value).strip())
-    if typ == "boolean":
-        if isinstance(value, bool):
-            return value
-        s = str(value).strip().lower()
-        if s in ("true", "1", "yes"):
-            return True
-        if s in ("false", "0", "no"):
-            return False
-        raise ValueError(f"cannot cast to boolean: {value!r}")
-    return value
-
-
-def cast_params(params: dict[str, Any], schema: dict[str, Any]) -> dict[str, Any]:
-    """WG-20：依簡化 JSON Schema 將字串等寬鬆輸入 cast 成 Python 型別。"""
-    props = (schema.get("properties") or {}) if isinstance(schema, dict) else {}
-    out: dict[str, Any] = dict(params)
-    for key, spec in props.items():
-        if key not in out:
-            continue
-        if not isinstance(spec, dict):
-            continue
-        typ = spec.get("type", "string")
-        try:
-            out[key] = _cast_scalar(out[key], typ)
-        except (ValueError, TypeError):
-            # 無法轉換時保留原值，交給 validate 報錯（與教案一致）
-            pass
-    return out
-
-
-def validate_params(params: dict[str, Any], schema: dict[str, Any]) -> list[str]:
-    """WG-20：檢查 required 與型別；額外鍵：拒絕未定義欄位。"""
-    errs: list[str] = []
-    if not isinstance(schema, dict):
-        return ["invalid tool schema"]
-    props = schema.get("properties") or {}
-    required = list(schema.get("required") or [])
-    for key in required:
-        if key not in params:
-            errs.append(f"missing required field: {key}")
-    for key in params:
-        if key not in props:
-            errs.append(f"unexpected field: {key}")
-    for key, spec in props.items():
-        if key not in params:
-            continue
-        if not isinstance(spec, dict):
-            continue
-        typ = spec.get("type", "string")
-        val = params[key]
-        if typ == "string" and not isinstance(val, str):
-            errs.append(f"{key} must be string")
-        elif typ == "integer" and not isinstance(val, int):
-            errs.append(f"{key} must be integer")
-        elif typ == "number" and not isinstance(val, (int, float)):
-            errs.append(f"{key} must be number")
-        elif typ == "boolean" and not isinstance(val, bool):
-            errs.append(f"{key} must be boolean")
-    return errs
-
-
-@dataclass
-class LessonToolSpec:
-    name: str
-    description: str
-    parameters: dict[str, Any]
-    read_only: bool
-    execute: Callable[[dict[str, Any]], str]
-
-
-class LessonToolRegistry:
-    """WG-19／20：註冊、prepare_call（cast→validate）、execute。"""
-
-    def __init__(self) -> None:
-        self._tools: dict[str, LessonToolSpec] = {}
-
-    def register(self, spec: LessonToolSpec) -> None:
-        self._tools[spec.name] = spec
-
-    def get(self, name: str) -> LessonToolSpec | None:
-        return self._tools.get(name)
-
-    def list_tool_names(self) -> list[str]:
-        return sorted(self._tools)
-
-    def prepare_call(
-        self, name: str, params: Any
-    ) -> tuple[LessonToolSpec | None, dict[str, Any], str | None]:
-        if not isinstance(params, dict):
-            return None, {}, "params must be a JSON object"
-        tool = self.get(name)
-        if tool is None:
-            return None, {}, f"unknown tool: {name}"
-        casted = cast_params(params, tool.parameters)
-        errs = validate_params(casted, tool.parameters)
-        if errs:
-            return tool, casted, "; ".join(errs)
-        return tool, casted, None
-
-    def run_tool(self, name: str, raw: dict[str, Any]) -> str:
-        tool, casted, err = self.prepare_call(name, raw)
-        if err:
-            return f"Error: {err}"
-        assert tool is not None
-        try:
-            return tool.execute(casted)
-        except Exception as e:
-            return f"Error: {e}"
-
-
-_LESSON_REGISTRY: LessonToolRegistry | None = None
-
-
-def get_lesson_registry() -> LessonToolRegistry:
-    global _LESSON_REGISTRY
-    if _LESSON_REGISTRY is None:
-        _LESSON_REGISTRY = build_default_lesson_registry()
-    return _LESSON_REGISTRY
-
-
-def build_default_lesson_registry() -> LessonToolRegistry:
-    reg = LessonToolRegistry()
-    reg.register(
-        LessonToolSpec(
-            name="add_two",
-            description="兩個整數相加並回傳和。課堂示範用。",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "a": {"type": "integer"},
-                    "b": {"type": "integer"},
-                },
-                "required": ["a", "b"],
-            },
-            read_only=True,
-            execute=_add_two_impl,
-        )
-    )
-    reg.register(
-        LessonToolSpec(
-            name="read_file",
-            description="讀 UTF-8 文字檔並回傳含行號片段（workspace 內相對路徑）。",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "offset": {"type": "integer"},
-                    "limit": {"type": "integer"},
-                },
-                "required": ["path"],
-            },
-            read_only=True,
-            execute=_read_file_impl,
-        )
-    )
-    reg.register(
-        LessonToolSpec(
-            name="write_file",
-            description="寫入 UTF-8 文字檔（整檔覆寫）；必要時建立父資料夾。",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "content": {"type": "string"},
-                },
-                "required": ["path", "content"],
-            },
-            read_only=False,
-            execute=_write_file_impl,
-        )
-    )
-    reg.register(
-        LessonToolSpec(
-            name="edit_file",
-            description="在既有檔案以 old_text 替換為 new_text；多次命中需 replace_all。",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "old_text": {"type": "string"},
-                    "new_text": {"type": "string"},
-                    "replace_all": {"type": "boolean"},
-                },
-                "required": ["path", "old_text", "new_text"],
-            },
-            read_only=False,
-            execute=_edit_file_impl,
-        )
-    )
-    reg.register(
-        LessonToolSpec(
-            name="list_dir",
-            description="列出 workspace 內目錄內容（相對路徑）。",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "recursive": {"type": "boolean"},
-                    "max_entries": {"type": "integer"},
-                },
-                "required": [],
-            },
-            read_only=True,
-            execute=_list_dir_impl,
-        )
-    )
-    reg.register(
-        LessonToolSpec(
-            name="exec",
-            description="在 workspace 目錄下執行 shell 指令（有安全阻擋與逾時）。",
-            parameters={
-                "type": "object",
-                "properties": {
-                    "command": {"type": "string"},
-                    "timeout": {"type": "integer"},
-                },
-                "required": ["command"],
-            },
-            read_only=False,
-            execute=_exec_impl,
-        )
-    )
-    return reg
-
-
-# --- WG-17：OpenAI 風格 dict transcript 管線 ---
-
-
-def _assistant_has_tool_call_id(msg: dict[str, Any], tool_call_id: str) -> bool:
-    for tc in msg.get("tool_calls") or []:
-        if isinstance(tc, dict) and str(tc.get("id")) == str(tool_call_id):
-            return True
-    return False
-
-
-def _drop_orphan_tools(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for i, m in enumerate(messages):
-        if m.get("role") == "tool":
-            tid = m.get("tool_call_id")
-            ok = any(
-                _assistant_has_tool_call_id(messages[j], str(tid))
-                for j in range(i)
-                if messages[j].get("role") == "assistant"
-            )
-            if not ok:
-                continue
-        out.append(m)
-    return out
-
-
-def _backfill_missing_tools(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """在缺 tool 回覆處插入合成 tool 訊息。"""
-    out = list(messages)
-    i = 0
-    while i < len(out):
-        m = out[i]
-        if m.get("role") != "assistant" or not m.get("tool_calls"):
-            i += 1
-            continue
-        ids = [str(tc.get("id")) for tc in m["tool_calls"] if isinstance(tc, dict)]
-        j = i + 1
-        found: set[str] = set()
-        while j < len(out) and out[j].get("role") == "tool":
-            found.add(str(out[j].get("tool_call_id")))
-            j += 1
-        insert_at = j
-        for tid in ids:
-            if tid in found:
-                continue
-            fn = next(
-                (
-                    tc.get("function", {}).get("name", "unknown")
-                    for tc in m["tool_calls"]
-                    if isinstance(tc, dict) and str(tc.get("id")) == tid
-                ),
-                "unknown",
-            )
-            synthetic = {
-                "role": "tool",
-                "tool_call_id": tid,
-                "name": fn,
-                "content": "[Tool result unavailable — call was interrupted or lost]",
-            }
-            out.insert(insert_at, synthetic)
-            insert_at += 1
-        i += 1
-    return out
-
-
-def _truncate_tool_contents(
-    messages: list[dict[str, Any]], max_tool_chars: int
-) -> None:
-    suffix = "\n\n[truncated]"
-    for m in messages:
-        if m.get("role") != "tool":
-            continue
-        c = str(m.get("content", ""))
-        if len(c) > max_tool_chars:
-            m["content"] = c[: max_tool_chars - len(suffix)] + suffix
-
-
-def _microcompact_tools(messages: list[dict[str, Any]], keep_recent: int) -> None:
-    indices = [
-        i
-        for i, m in enumerate(messages)
-        if m.get("role") == "tool"
-        and str(m.get("name", "")) in COMPACTABLE_TOOL_NAMES
-    ]
-    if len(indices) <= keep_recent:
-        return
-    protected = set(indices[-keep_recent:])
-    for i in indices:
-        if i in protected:
-            continue
-        m = messages[i]
-        c = str(m.get("content", ""))
-        if len(c) >= 500:
-            nm = str(m.get("name", "tool"))
-            messages[i] = dict(m)
-            messages[i]["content"] = f"[{nm} result omitted from context]"
-
-
-def _msg_dict_cost(m: dict[str, Any]) -> int:
-    return len(str(m.get("content", "")))
-
-
-def _total_dict_cost(messages: list[dict[str, Any]]) -> int:
-    return sum(_msg_dict_cost(m) for m in messages)
-
-
-def _snip_transcript(messages: list[dict[str, Any]], max_chars: int) -> None:
-    while _total_dict_cost(messages) > max_chars:
-        if len(messages) <= 1:
-            break
-        first_role = messages[0].get("role")
-        if first_role == "system" and len(messages) == 2 and messages[1].get("role") == "user":
-            break
-        del_idx = 1 if first_role == "system" else 0
-        if del_idx >= len(messages):
-            break
-        if del_idx == len(messages) - 1 and messages[del_idx].get("role") == "user":
-            break
-        del messages[del_idx]
-
-
-def _ensure_system_user_guardrails(messages: list[dict[str, Any]]) -> None:
-    if not messages:
-        return
-    if messages[-1].get("role") != "user":
-        messages.append({"role": "user", "content": "(conversation continued)"})
-    sys_idxs = [i for i, m in enumerate(messages) if m.get("role") == "system"]
-    if sys_idxs and sys_idxs[0] != 0:
-        si = sys_idxs[0]
-        s = messages.pop(si)
-        messages.insert(0, s)
-
-
-def build_messages_for_model(
-    messages: list[dict[str, Any]],
-    *,
-    max_chars: int,
-    max_tool_chars: int,
-    keep_recent_tools: int,
-) -> list[dict[str, Any]]:
-    """WG-17：孤兒清理 → 補洞 → tool 截斷 → microcompact → 全對話字元預算。"""
-    out: list[dict[str, Any]] = []
-    for m in messages:
-        row = dict(m)
-        if row.get("tool_calls"):
-            row["tool_calls"] = copy.deepcopy(row["tool_calls"])
-        out.append(row)
-
-    out = _drop_orphan_tools(out)
-    out = _backfill_missing_tools(out)
-    _truncate_tool_contents(out, max_tool_chars)
-    _microcompact_tools(out, keep_recent_tools)
-    _snip_transcript(out, max_chars)
-    _ensure_system_user_guardrails(out)
-    return out
-
-
-def _lc_tool_calls_to_openai(tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    oai: list[dict[str, Any]] = []
-    for tc in tool_calls:
-        if not isinstance(tc, dict):
-            continue
-        name = str(tc.get("name", ""))
-        args = tc.get("args") or {}
-        tid = str(tc.get("id", ""))
-        oai.append(
-            {
-                "id": tid,
-                "type": "function",
-                "function": {
-                    "name": name,
-                    "arguments": json.dumps(args, ensure_ascii=False),
-                },
-            }
-        )
-    return oai
-
-
-def lc_messages_to_openai_dicts(messages: list[BaseMessage]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
-    for m in messages:
-        if isinstance(m, SystemMessage):
-            out.append({"role": "system", "content": str(m.content)})
-        elif isinstance(m, HumanMessage):
-            out.append({"role": "user", "content": str(m.content)})
-        elif isinstance(m, AIMessage):
-            d: dict[str, Any] = {
-                "role": "assistant",
-                "content": str(m.content or ""),
-            }
-            tc = getattr(m, "tool_calls", None) or []
-            if tc:
-                d["tool_calls"] = _lc_tool_calls_to_openai(
-                    [t if isinstance(t, dict) else dict(t) for t in tc]
-                )
-            out.append(d)
-        elif isinstance(m, ToolMessage):
-            name = getattr(m, "name", None) or ""
-            out.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": m.tool_call_id,
-                    "name": str(name) if name else "unknown",
-                    "content": str(m.content),
-                }
-            )
-    return out
-
-
-def _openai_tool_calls_to_lc(tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    lc: list[dict[str, Any]] = []
-    for tc in tool_calls:
-        if not isinstance(tc, dict):
-            continue
-        fn = tc.get("function") or {}
-        if isinstance(fn, dict):
-            name = str(fn.get("name", ""))
-            raw_args = fn.get("arguments", "{}")
-            if isinstance(raw_args, str):
-                try:
-                    args = json.loads(raw_args) if raw_args.strip() else {}
-                except json.JSONDecodeError:
-                    args = {}
-            else:
-                args = dict(raw_args) if isinstance(raw_args, dict) else {}
-        else:
-            name = ""
-            args = {}
-        lc.append({"name": name, "args": args, "id": str(tc.get("id", ""))})
-    return lc
-
-
-def openai_dicts_to_lc_messages(rows: list[dict[str, Any]]) -> list[BaseMessage]:
-    out: list[BaseMessage] = []
-    for m in rows:
-        role = m.get("role")
-        if role == "system":
-            out.append(SystemMessage(content=str(m.get("content", ""))))
-        elif role == "user":
-            out.append(HumanMessage(content=str(m.get("content", ""))))
-        elif role == "assistant":
-            tc = m.get("tool_calls")
-            if tc:
-                out.append(
-                    AIMessage(
-                        content=str(m.get("content", "")),
-                        tool_calls=_openai_tool_calls_to_lc(
-                            tc if isinstance(tc, list) else []
-                        ),
-                    )
-                )
-            else:
-                out.append(AIMessage(content=str(m.get("content", ""))))
-        elif role == "tool":
-            out.append(
-                ToolMessage(
-                    content=str(m.get("content", "")),
-                    tool_call_id=str(m.get("tool_call_id", "")),
-                    name=str(m.get("name", "") or "unknown"),
-                )
-            )
-    return out
-
-
-# --- WG-13：LangChain bind_tools 介面（實際執行經 LessonToolRegistry）---
-
-
-@tool
-def add_two(a: int, b: int) -> int:
-    """兩個整數相加並回傳和。課堂示範用，請在需要相加時呼叫此工具。"""
-    return int(get_lesson_registry().run_tool("add_two", {"a": a, "b": b}))
-
-
-@tool
-def read_file(path: str, offset: int = 1, limit: int = 200) -> str:
-    """讀取 workspace 內 UTF-8 文字檔，回傳含行號內容。"""
-    return get_lesson_registry().run_tool(
-        "read_file", {"path": path, "offset": offset, "limit": limit}
-    )
-
-
-@tool
-def write_file(path: str, content: str) -> str:
-    """整檔覆寫寫入 UTF-8 文字檔。"""
-    return get_lesson_registry().run_tool("write_file", {"path": path, "content": content})
-
-
-@tool
-def edit_file(path: str, old_text: str, new_text: str, replace_all: bool = False) -> str:
-    """局部替換檔案內容。"""
-    return get_lesson_registry().run_tool(
-        "edit_file",
-        {
-            "path": path,
-            "old_text": old_text,
-            "new_text": new_text,
-            "replace_all": replace_all,
-        },
-    )
-
-
-@tool
-def list_dir(path: str = ".", recursive: bool = False, max_entries: int = 200) -> str:
-    """列出目錄內容（相對於專案根）。"""
-    return get_lesson_registry().run_tool(
-        "list_dir",
-        {"path": path, "recursive": recursive, "max_entries": max_entries},
-    )
-
-
-@tool("exec")
-def exec_command(command: str, timeout: int = 30) -> str:
-    """在 workspace 下執行 shell 指令（有安全阻擋）。"""
-    return get_lesson_registry().run_tool(
-        "exec", {"command": command, "timeout": timeout}
-    )
-
-
-def all_lesson_tools() -> list[Any]:
-    return [add_two, read_file, write_file, edit_file, list_dir, exec_command]
-
-
-TOOLS = all_lesson_tools()
+# ---------------------------------------------------------------------------
+# WG-15～16／WG-21：JSONL（含 image_path）
+# ---------------------------------------------------------------------------
+
+
+def _default_metadata(created_at: str | None = None) -> dict[str, Any]:
+    now = datetime.now().isoformat()
+    return {
+        "_type": "metadata",
+        "key": "session",
+        "created_at": created_at or now,
+        "updated_at": now,
+        "metadata": {},
+        "last_consolidated": 0,
+    }
 
 
 def _serialize_tool_calls(tc: Any) -> list[dict[str, Any]]:
-    """寫入 JSONL 前轉成可 json.dumps 的結構。"""
     if not tc:
         return []
     out: list[dict[str, Any]] = []
@@ -972,69 +445,92 @@ def _serialize_tool_calls(tc: Any) -> list[dict[str, Any]]:
     return out
 
 
-def estimate_message_tokens(message: BaseMessage) -> int:
-    """WG-16：字元長度近似 token；AIMessage 含 tool_calls 時加權。"""
-    c = message.content
-    n = len(c) if isinstance(c, str) else 0
-    if isinstance(message, AIMessage):
-        tc = getattr(message, "tool_calls", None) or []
+def _human_content_to_str(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+        return "\n".join(p for p in parts if p)
+    return str(content)
+
+
+def load_user_row_to_history_human(row: dict[str, Any]) -> HumanMessage:
+    text = str(row.get("content", ""))
+    rel = row.get("image_path")
+    if not rel:
+        return HumanMessage(content=text)
+    mt = row.get("media_type")
+    extra = f"[此回合曾附圖，路徑：{rel}]"
+    if mt:
+        extra += f"（media_type={mt}）"
+    return HumanMessage(content=f"{text}\n\n{extra}")
+
+
+def _row_to_message(obj: dict[str, Any]) -> BaseMessage | None:
+    role = obj.get("role")
+    if role == "user":
+        return load_user_row_to_history_human(obj)
+    if role == "assistant":
+        content = str(obj.get("content", ""))
+        tc = obj.get("tool_calls")
         if tc:
-            n += len(json.dumps(_serialize_tool_calls(tc), ensure_ascii=False))
-    return n
+            return AIMessage(content=content, tool_calls=_serialize_tool_calls(tc))
+        return AIMessage(content=content)
+    if role == "tool":
+        tid = obj.get("tool_call_id") or ""
+        nm = str(obj.get("name", "") or "").strip() or None
+        return ToolMessage(
+            content=str(obj.get("content", "")),
+            tool_call_id=str(tid),
+            name=nm,
+        )
+    return None
 
 
-def pick_consolidation_boundary(
-    messages: list[BaseMessage],
-    last_consolidated: int,
-    tokens_to_remove: int,
-) -> tuple[int, int] | None:
-    start = last_consolidated
-    if start >= len(messages) or tokens_to_remove <= 0:
-        return None
-
-    removed_tokens = 0
-    last_boundary: tuple[int, int] | None = None
-    for idx in range(start, len(messages)):
-        message = messages[idx]
-        if idx > start and isinstance(message, HumanMessage):
-            last_boundary = (idx, removed_tokens)
-            if removed_tokens >= tokens_to_remove:
-                return last_boundary
-        removed_tokens += estimate_message_tokens(message)
-
-    return last_boundary
-
-
-def request_cost_chars(
-    system_text: str, past: list[BaseMessage], human_message: HumanMessage
-) -> int:
-    """與 memory_react_agent.request_cost_chars 同語意（含 ToolMessage 之 content）。"""
-    return (
-        len(system_text)
-        + sum(estimate_message_tokens(m) for m in past)
-        + estimate_message_tokens(human_message)
-    )
-
-
-def _default_metadata(created_at: str | None = None) -> dict[str, Any]:
-    now = datetime.now().isoformat()
-    return {
-        "_type": "metadata",
-        "key": "session",
-        "created_at": created_at or now,
-        "updated_at": now,
-        "metadata": {},
-        "last_consolidated": 0,
-    }
+def _message_to_jsonl_row(m: BaseMessage) -> dict[str, Any] | None:
+    ts = datetime.now().isoformat()
+    if isinstance(m, HumanMessage):
+        row: dict[str, Any] = {
+            "role": "user",
+            "content": _human_content_to_str(m.content),
+            "timestamp": ts,
+        }
+        extra = getattr(m, "additional_kwargs", None) or {}
+        rel = extra.get("image_path")
+        if rel:
+            row["image_path"] = rel
+            mt = extra.get("media_type")
+            if mt:
+                row["media_type"] = mt
+        return row
+    if isinstance(m, AIMessage):
+        row = {"role": "assistant", "content": m.content, "timestamp": ts}
+        tc = getattr(m, "tool_calls", None)
+        if tc:
+            row["tool_calls"] = _serialize_tool_calls(tc)
+        return row
+    if isinstance(m, ToolMessage):
+        row = {
+            "role": "tool",
+            "content": m.content,
+            "tool_call_id": m.tool_call_id,
+            "timestamp": ts,
+        }
+        tname = getattr(m, "name", None)
+        if tname:
+            row["name"] = tname
+        return row
+    return None
 
 
 def load_session_jsonl(path: str) -> tuple[list[BaseMessage], dict[str, Any] | None]:
     if not os.path.exists(path):
         return [], None
-
     messages: list[BaseMessage] = []
     meta: dict[str, Any] | None = None
-
     with open(path, encoding="utf-8") as f:
         for raw in f:
             line = raw.strip()
@@ -1044,37 +540,13 @@ def load_session_jsonl(path: str) -> tuple[list[BaseMessage], dict[str, Any] | N
                 obj: Any = json.loads(line)
             except json.JSONDecodeError:
                 continue
-
             if isinstance(obj, dict) and obj.get("_type") == "metadata":
                 meta = obj
                 continue
-
-            if not isinstance(obj, dict):
-                continue
-
-            role = obj.get("role")
-            if role == "user":
-                messages.append(HumanMessage(content=str(obj.get("content", ""))))
-            elif role == "assistant":
-                content = str(obj.get("content", ""))
-                tc = obj.get("tool_calls")
-                if tc:
-                    messages.append(
-                        AIMessage(content=content, tool_calls=_serialize_tool_calls(tc))
-                    )
-                else:
-                    messages.append(AIMessage(content=content))
-            elif role == "tool":
-                tid = obj.get("tool_call_id") or ""
-                nm = str(obj.get("name", "") or "").strip() or None
-                messages.append(
-                    ToolMessage(
-                        content=str(obj.get("content", "")),
-                        tool_call_id=str(tid),
-                        name=nm,
-                    )
-                )
-
+            if isinstance(obj, dict):
+                msg = _row_to_message(obj)
+                if msg is not None:
+                    messages.append(msg)
     return messages, meta
 
 
@@ -1095,42 +567,396 @@ def save_session_jsonl(
             meta["created_at"] = now
         meta["updated_at"] = now
     meta["last_consolidated"] = last_consolidated
-
     lines: list[str] = [json.dumps(meta, ensure_ascii=False)]
-
     for m in messages:
-        ts = datetime.now().isoformat()
-        if isinstance(m, HumanMessage):
-            row = {"role": "user", "content": m.content, "timestamp": ts}
-        elif isinstance(m, AIMessage):
-            row = {"role": "assistant", "content": m.content, "timestamp": ts}
-            tc = getattr(m, "tool_calls", None)
-            if tc:
-                row["tool_calls"] = _serialize_tool_calls(tc)
-        elif isinstance(m, ToolMessage):
-            row = {
-                "role": "tool",
-                "content": m.content,
-                "tool_call_id": m.tool_call_id,
-                "timestamp": ts,
-            }
-            tname = getattr(m, "name", None)
-            if tname:
-                row["name"] = tname
-        else:
-            continue
-        lines.append(json.dumps(row, ensure_ascii=False))
-
+        row = _message_to_jsonl_row(m)
+        if row is not None:
+            lines.append(json.dumps(row, ensure_ascii=False))
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
         if lines:
             f.write("\n")
-
     return meta
 
 
+# ---------------------------------------------------------------------------
+# WG-17／WG-19：字元預算與整併邊界
+# ---------------------------------------------------------------------------
+
+
+def estimate_message_tokens(message: BaseMessage) -> int:
+    c = message.content
+    if isinstance(c, str):
+        return len(c)
+    if isinstance(c, list):
+        return sum(len(str(block)) for block in c)
+    return len(str(c))
+
+
+def pick_consolidation_boundary(
+    messages: list[BaseMessage],
+    last_consolidated: int,
+    tokens_to_remove: int,
+) -> tuple[int, int] | None:
+    start = last_consolidated
+    if start >= len(messages) or tokens_to_remove <= 0:
+        return None
+    removed_tokens = 0
+    last_boundary: tuple[int, int] | None = None
+    for idx in range(start, len(messages)):
+        message = messages[idx]
+        if idx > start and isinstance(message, HumanMessage):
+            last_boundary = (idx, removed_tokens)
+            if removed_tokens >= tokens_to_remove:
+                return last_boundary
+        removed_tokens += estimate_message_tokens(message)
+    return last_boundary
+
+
+def message_cost(msgs: list[BaseMessage]) -> int:
+    return sum(estimate_message_tokens(m) for m in msgs)
+
+
+def request_cost_chars(system_str: str, past: list[BaseMessage], human: HumanMessage) -> int:
+    return len(system_str) + message_cost([*past, human])
+
+
+def pick_past_for_turn(
+    history: list[BaseMessage],
+    last_consolidated: int,
+    system_str: str,
+    human_message: HumanMessage,
+) -> list[BaseMessage]:
+    past0 = history[last_consolidated:]
+    cost = request_cost_chars(system_str, past0, human_message)
+    if cost <= TOKEN_BUDGET:
+        return past0
+    tokens_to_remove = max(0, cost - TOKEN_BUDGET // 2)
+    boundary = pick_consolidation_boundary(history, last_consolidated, tokens_to_remove)
+    if boundary is not None:
+        return history[boundary[0] :]
+    return past0
+
+
+def append_history_line(line: str) -> None:
+    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    with open(HISTORY_FILE, "a", encoding="utf-8") as f:
+        f.write(f"[{stamp}] {line}\n")
+
+
+def _messages_to_plain_text(msgs: list[BaseMessage]) -> str:
+    parts: list[str] = []
+    for m in msgs:
+        if isinstance(m, HumanMessage):
+            parts.append(f"User: {_human_content_to_str(m.content)}")
+        elif isinstance(m, AIMessage):
+            parts.append(f"Assistant: {_human_content_to_str(m.content)}")
+        elif isinstance(m, ToolMessage):
+            parts.append(f"Tool({m.tool_call_id}): {m.content}")
+    return "\n".join(parts)
+
+
+def run_consolidation_pass(
+    consolidation_llm: ChatOpenAI,
+    chunk: list[BaseMessage],
+    current_memory: str,
+) -> tuple[str, str] | None:
+    prompt = (
+        "你是長期記憶整併助手。根據下列舊對話與現有記憶，產出 JSON 物件，"
+        '僅含兩個鍵："history_entry"（單行摘要）與 "memory_update"（完整 markdown 取代 MEMORY）。\n\n'
+        f"現有記憶：\n{current_memory or '(空)'}\n\n"
+        f"待整併對話：\n{_messages_to_plain_text(chunk)}"
+    )
+    response = consolidation_llm.invoke(prompt)
+    text = (response.content or "").strip()
+    match = re.search(r"\{[\s\S]*\}", text)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(0))
+        entry = str(data.get("history_entry", "")).replace("\n", " ").strip()
+        memory = str(data.get("memory_update", "")).strip()
+        if entry and memory:
+            return entry, memory
+    except json.JSONDecodeError:
+        return None
+    return None
+
+
+def maybe_consolidate_memory(
+    consolidation_llm: ChatOpenAI,
+    history: list[BaseMessage],
+    last_consolidated: int,
+    system_str: str,
+    human_message: HumanMessage,
+) -> int:
+    """WG-19：超 TOKEN_BUDGET 時整併一段 chunk，更新 MEMORY/HISTORY 與游標。"""
+    while True:
+        past0 = history[last_consolidated:]
+        cost = request_cost_chars(system_str, past0, human_message)
+        if cost <= TOKEN_BUDGET:
+            break
+        tokens_to_remove = max(0, cost - TOKEN_BUDGET // 2)
+        boundary = pick_consolidation_boundary(
+            history, last_consolidated, tokens_to_remove
+        )
+        if boundary is None:
+            break
+        idx, _ = boundary
+        chunk = history[last_consolidated:idx]
+        if not chunk:
+            last_consolidated = idx
+            continue
+        current_memory = ""
+        if MEMORY_FILE.is_file():
+            current_memory = MEMORY_FILE.read_text(encoding="utf-8")
+        success = False
+        retries = max(CONSOLIDATION_MAX_RETRIES, 0)
+        for attempt in range(retries + 1):
+            result = run_consolidation_pass(consolidation_llm, chunk, current_memory)
+            if result:
+                entry, memory_update = result
+                MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+                MEMORY_FILE.write_text(memory_update, encoding="utf-8")
+                append_history_line(entry)
+                success = True
+                break
+        if not success:
+            append_history_line("[CONSOLIDATION-FAILED] chunk consolidation failed")
+        last_consolidated = idx
+        past_after = history[last_consolidated:]
+        if request_cost_chars(system_str, past_after, human_message) <= TOKEN_BUDGET // 2:
+            break
+    return last_consolidated
+
+
+# ---------------------------------------------------------------------------
+# WG-18：dict transcript 修復（獨立函式，不污染輸入）
+# ---------------------------------------------------------------------------
+
+COMPACTABLE = {
+    "read_file",
+    "exec",
+    "grep",
+    "glob",
+    "web_search",
+    "web_fetch",
+    "list_dir",
+}
+
+
+def _collect_tool_call_ids(messages: list[dict[str, Any]]) -> set[str]:
+    ids: set[str] = set()
+    for m in messages:
+        if m.get("role") != "assistant":
+            continue
+        for tc in m.get("tool_calls") or []:
+            tid = tc.get("id")
+            if tid:
+                ids.add(str(tid))
+    return ids
+
+
+def build_messages_for_model(
+    messages: list[dict[str, Any]],
+    *,
+    max_chars: int,
+    max_tool_chars: int,
+    keep_recent_tools: int,
+) -> list[dict[str, Any]]:
+    out = [dict(m) for m in messages]
+
+    # A: 孤兒 tool
+    known_ids = _collect_tool_call_ids(out)
+    out = [
+        m
+        for m in out
+        if not (
+            m.get("role") == "tool"
+            and str(m.get("tool_call_id", "")) not in known_ids
+        )
+    ]
+
+    # B: 缺 tool 回覆補洞
+    fixed: list[dict[str, Any]] = []
+    i = 0
+    while i < len(out):
+        m = out[i]
+        fixed.append(m)
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            existing = {
+                str(t.get("tool_call_id", ""))
+                for t in out[i + 1 :]
+                if t.get("role") == "tool"
+            }
+            insert_at = i + 1
+            for tc in m["tool_calls"]:
+                tid = str(tc.get("id", ""))
+                if tid and tid not in existing:
+                    fn = tc.get("function") or {}
+                    name = fn.get("name", "tool")
+                    stub = {
+                        "role": "tool",
+                        "tool_call_id": tid,
+                        "name": name,
+                        "content": "[Tool result unavailable — call was interrupted or lost]",
+                    }
+                    fixed.insert(insert_at, stub)
+                    insert_at += 1
+        i += 1
+    out = fixed
+
+    # C: tool 單則上限
+    for m in out:
+        if m.get("role") == "tool" and isinstance(m.get("content"), str):
+            c = m["content"]
+            if len(c) > max_tool_chars:
+                m["content"] = c[:max_tool_chars] + "\n\n[truncated]"
+
+    # D: 小型壓縮
+    compact_indices = [
+        idx
+        for idx, m in enumerate(out)
+        if m.get("role") == "tool" and m.get("name") in COMPACTABLE
+    ]
+    if len(compact_indices) > keep_recent_tools:
+        to_compact = compact_indices[: -keep_recent_tools]
+        for idx in to_compact:
+            m = out[idx]
+            if isinstance(m.get("content"), str) and len(m["content"]) >= 500:
+                name = m.get("name", "tool")
+                m["content"] = f"[{name} result omitted from context]"
+
+    # E: 全對話字元預算
+    def row_cost(msg: dict[str, Any]) -> int:
+        return len(str(msg.get("content", "")))
+
+    def total_cost() -> int:
+        return sum(row_cost(m) for m in out)
+
+    while total_cost() > max_chars and len(out) > 2:
+        removed = False
+        for idx in range(len(out)):
+            if out[idx].get("role") == "system":
+                continue
+            if idx == len(out) - 1 and out[idx].get("role") == "user":
+                continue
+            out.pop(idx)
+            removed = True
+            break
+        if not removed:
+            break
+
+    if out and out[-1].get("role") != "user":
+        out.append({"role": "user", "content": "(conversation continued)"})
+    return out
+
+
+# ---------------------------------------------------------------------------
+# WG-21：多模態與送模層 messages_for_model
+# ---------------------------------------------------------------------------
+
+
+def guess_media_type(path: Path, fallback: str = "image/png") -> str:
+    ext = path.suffix.lower()
+    if ext in (".jpg", ".jpeg"):
+        return "image/jpeg"
+    if ext == ".png":
+        return "image/png"
+    if ext == ".webp":
+        return "image/webp"
+    return fallback
+
+
+def image_bytes_to_data_url(data: bytes, media_type: str) -> str:
+    b64 = base64.b64encode(data).decode("ascii")
+    return f"data:{media_type};base64,{b64}"
+
+
+def resolve_project_image(path_str: str) -> Path | None:
+    raw = Path(path_str)
+    if raw.is_absolute():
+        return None
+    full = (PROJECT_ROOT / path_str).resolve()
+    try:
+        full.relative_to(PROJECT_ROOT.resolve())
+    except ValueError:
+        return None
+    return full
+
+
+def build_human_message_for_current_turn(
+    text: str,
+    image_rel: str | None,
+    media_type: str | None = None,
+) -> HumanMessage:
+    if not image_rel:
+        return HumanMessage(content=text)
+    full = resolve_project_image(image_rel)
+    if full is None or not full.is_file():
+        print(f"[warn] missing image for current turn: {image_rel}")
+        return HumanMessage(content=text)
+    mt = media_type or guess_media_type(full)
+    url = image_bytes_to_data_url(full.read_bytes(), mt)
+    msg = HumanMessage(
+        content=[
+            {"type": "text", "text": text},
+            {"type": "image_url", "image_url": {"url": url}},
+        ]
+    )
+    msg.additional_kwargs["image_path"] = image_rel
+    msg.additional_kwargs["media_type"] = mt
+    return msg
+
+
+def _human_to_text_only_placeholder(m: HumanMessage) -> HumanMessage:
+    c = m.content
+    if isinstance(c, str):
+        return m
+    if isinstance(c, list):
+        parts: list[str] = []
+        for block in c:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+        body = "\n".join(p for p in parts if p).strip() or "[（無文字）此則曾含圖]"
+        return HumanMessage(content=body + "\n\n[送模層已剝除歷史圖區塊]")
+    return HumanMessage(content=str(c))
+
+
+def messages_for_model(
+    system_message: SystemMessage,
+    past: list[BaseMessage],
+    human_message: HumanMessage,
+) -> list[BaseMessage]:
+    out: list[BaseMessage] = [copy.deepcopy(system_message)]
+    for m in past:
+        mm = copy.deepcopy(m)
+        if isinstance(mm, HumanMessage) and not isinstance(mm.content, str):
+            mm = _human_to_text_only_placeholder(mm)
+        out.append(mm)
+    out.append(copy.deepcopy(human_message))
+    return out
+
+
+def parse_user_input(raw: str) -> tuple[str, str | None]:
+    stripped = raw.strip()
+    if stripped.lower().startswith("/image "):
+        rest = stripped[7:].strip()
+        parts = rest.split(maxsplit=1)
+        if parts:
+            path = parts[0]
+            text = parts[1] if len(parts) > 1 else "請描述這張圖片。"
+            return text, path
+    return stripped, None
+
+
+# ---------------------------------------------------------------------------
+# WG-10／WG-13：串流 ReAct
+# ---------------------------------------------------------------------------
+
+
 def _flatten_ai_chunk_text(content: Any) -> str:
-    """從單一 AIMessageChunk.content 抽出可當成純文字串流處理的字串（供略過開頭空白）。"""
     if not content:
         return ""
     if isinstance(content, str):
@@ -1147,7 +973,6 @@ def _flatten_ai_chunk_text(content: Any) -> str:
 
 
 def _print_ai_stream_content(content: Any) -> None:
-    """將單一 chunk 的可讀文字印到 stdout（WG-10：end=''、flush）。"""
     if not content:
         return
     if isinstance(content, str):
@@ -1157,16 +982,11 @@ def _print_ai_stream_content(content: Any) -> None:
         for block in content:
             if isinstance(block, str):
                 print(block, end="", flush=True)
-            elif isinstance(block, dict):
-                if block.get("type") == "text":
-                    print(block.get("text", ""), end="", flush=True)
+            elif isinstance(block, dict) and block.get("type") == "text":
+                print(block.get("text", ""), end="", flush=True)
 
 
 class _LeadingStripStreamPrinter:
-    """略過模型在訊息開頭常送的連續換行，避免「助手：」下方空白過多。"""
-
-    __slots__ = ("_pending",)
-
     def __init__(self) -> None:
         self._pending = True
 
@@ -1186,53 +1006,50 @@ class _LeadingStripStreamPrinter:
         _print_ai_stream_content(content)
 
 
+def _run_bound_tool(name: str, args: dict[str, Any]) -> str:
+    _tool_obj, params, err = prepare_tool_call(name, args)
+    if err:
+        return f"Error: {err}"
+    if _tool_obj is None:
+        return f"Error: unknown tool {name!r}"
+    try:
+        return str(_tool_obj.invoke(params))
+    except Exception as e:
+        return f"Error running tool {name}: {e}"
+
+
 def run_react_turn(
     llm_tools: ChatOpenAI,
-    system_text: str,
-    history: list[BaseMessage],
-    user_text: str,
+    context_messages: list[BaseMessage],
+    idx_turn_start: int,
     *,
     stream_stdout: bool = True,
 ) -> tuple[str, list[BaseMessage]]:
-    """WG-13：ReAct 多段呼叫；最後一則與含 tool_calls 之中間步皆用 stream 累積為 AIMessage。"""
-    human_message = HumanMessage(content=user_text)
-    messages: list[BaseMessage] = [
-        SystemMessage(content=system_text),
-        *history,
-        human_message,
-    ]
-    idx_turn_start = 1 + len(history)
-
+    messages = list(context_messages)
     while True:
-        dict_rows = lc_messages_to_openai_dicts(messages)
-        pruned = build_messages_for_model(
-            dict_rows,
-            max_chars=MODEL_TRANSCRIPT_MAX_CHARS,
-            max_tool_chars=MODEL_MAX_TOOL_RESULT_CHARS,
-            keep_recent_tools=MODEL_KEEP_RECENT_TOOLS,
-        )
-        messages_for_invoke = openai_dicts_to_lc_messages(pruned)
         acc: AIMessageChunk | None = None
         stream_out = _LeadingStripStreamPrinter() if stream_stdout else None
-        for chunk in llm_tools.stream(messages_for_invoke):
+        for chunk in llm_tools.stream(messages):
             acc = chunk if acc is None else acc + chunk
             if stream_out is not None:
                 stream_out.emit(getattr(chunk, "content", None))
         if acc is None:
             raise RuntimeError("模型串流未回傳任何 chunk")
         response = message_chunk_to_message(acc)
+
         if response.tool_calls:
             if stream_stdout:
                 print()
             messages.append(response)
-            reg = get_lesson_registry()
             for tc in response.tool_calls:
                 name = str(tc["name"])
                 raw_args = dict(tc.get("args") or {})
-                result = reg.run_tool(name, raw_args)
+                result = _run_bound_tool(name, raw_args)
+                if stream_stdout:
+                    print(f"\n[工具 {name}]\n{result}\n", flush=True)
                 messages.append(
                     ToolMessage(
-                        content=str(result),
+                        content=result,
                         tool_call_id=str(tc["id"]),
                         name=name,
                     )
@@ -1242,190 +1059,97 @@ def run_react_turn(
             break
 
     turn_messages = messages[idx_turn_start:]
-    final_ai = next(
-        (m for m in reversed(turn_messages) if isinstance(m, AIMessage)),
-        None,
-    )
+    final_ai = next((m for m in reversed(turn_messages) if isinstance(m, AIMessage)), None)
     final_text = ((final_ai.content if final_ai else None) or "").strip()
     return final_text, turn_messages
 
 
-def _messages_to_chunk_text(msgs: list[BaseMessage]) -> str:
-    lines: list[str] = []
-    for m in msgs:
-        if isinstance(m, HumanMessage):
-            lines.append(f"user: {m.content}")
-        elif isinstance(m, AIMessage):
-            lines.append(f"assistant: {m.content}")
-        elif isinstance(m, ToolMessage):
-            lines.append(f"tool[{m.tool_call_id}]: {m.content}")
-    return "\n".join(lines)
-
-
-def _parse_consolidation_json(text: str) -> tuple[str, str] | None:
-    text = text.strip()
-    try:
-        fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
-        if fence:
-            text = fence.group(1).strip()
-        obj = json.loads(text)
-        if not isinstance(obj, dict):
-            return None
-        he = obj.get("history_entry")
-        mu = obj.get("memory_update")
-        if not isinstance(he, str) or not isinstance(mu, str):
-            return None
-        return he, mu
-    except (json.JSONDecodeError, TypeError):
-        return None
-
-
-def run_consolidation_llm(
-    llm: ChatOpenAI, chunk_msgs: list[BaseMessage], current_memory: str
-) -> tuple[str, str] | None:
-    chunk_text = _messages_to_chunk_text(chunk_msgs)
-    instruction = (
-        "你是整併助手。請閱讀「現有長期記憶（markdown）」與「待整併對話片段」，"
-        "僅輸出一個 JSON 物件（不要其他說明），兩個鍵：\n"
-        '- "history_entry": 字串，單行可讀摘要（繁體中文）\n'
-        '- "memory_update": 字串，將完整取代 MEMORY.md 的正文（markdown）\n'
-    )
-    user_body = f"{instruction}\n\n【現有 MEMORY】\n{current_memory}\n\n【待整併片段】\n{chunk_text}"
-    msgs = [
-        SystemMessage(
-            content="你僅輸出合法 JSON 物件，鍵名必為 history_entry 與 memory_update。"
-        ),
-        HumanMessage(content=user_body),
-    ]
-    r = llm.invoke(msgs)
-    raw = r.content if isinstance(r.content, str) else str(r.content)
-    return _parse_consolidation_json(raw)
-
-
-def consolidate_one_chunk(
-    consolidation_llm: ChatOpenAI,
-    history: list[BaseMessage],
-    last_consolidated: int,
-    boundary_idx: int,
-) -> int:
-    """整併 history[last_consolidated:boundary_idx]；回傳 boundary_idx。"""
-    chunk = history[last_consolidated:boundary_idx]
-    if not chunk:
-        return boundary_idx
-
-    current_mem = read_long_term()
-    attempts = (
-        1 if CONSOLIDATION_MAX_RETRIES == 0 else (1 + CONSOLIDATION_MAX_RETRIES)
-    )
-    for _ in range(attempts):
-        parsed = run_consolidation_llm(consolidation_llm, chunk, current_mem)
-        if parsed is not None:
-            he, mu = parsed
-            append_history(he, failed=False)
-            write_long_term(mu)
-            return boundary_idx
-
-    fail_note = _messages_to_chunk_text(chunk)[:500]
-    append_history(fail_note, failed=True)
-    return boundary_idx
+# ---------------------------------------------------------------------------
+# WG-05～07／WG-08～21：main
+# ---------------------------------------------------------------------------
 
 
 def main() -> None:
+    # WG-05
     load_dotenv()
     api_key = os.getenv("OPENAI_API_KEY")
 
-    loader = SkillsLoader(ROOT, ROOT / "builtin_skills")
-    session_path = os.getenv("SESSION_JSONL_PATH", str(ROOT / "session.jsonl"))
-
+    # WG-06～07
     if api_key:
         print(
-            "已讀到 API 金鑰設定（內容不顯示）；進入對話（ReAct + 串流輸出 + JSONL、"
-            "WG-16/17 預算與長期記憶、WG-18 Skills；輸入 quit / exit / q 結束）。"
+            "已讀到 API 金鑰設定（內容不顯示）；進入對話（ReAct + 工具 + JSONL + 預算 + Skills + 附圖；"
+            "輸入 quit / exit / q 結束；/image 路徑 附圖）。"
         )
     else:
         print("尚未讀到 OPENAI_API_KEY；請檢查 .env 或系統環境變數。")
         return
 
-    loaded, session_meta = load_session_jsonl(session_path)
-    history: list[BaseMessage] = list(loaded)
-    last_consolidated = 0
-    if session_meta is not None:
-        try:
-            last_consolidated = int(session_meta.get("last_consolidated", 0))
-        except (TypeError, ValueError):
-            last_consolidated = 0
-    last_consolidated = max(0, min(last_consolidated, len(history)))
+    print_wg01_to_03_banner()
 
-    token_budget = _token_budget()
-    llm = ChatOpenAI(model="gpt-5.4-mini", temperature=0.2)
+    session_path = os.getenv("SESSION_JSONL_PATH", "session.jsonl")
+    history, session_meta = load_session_jsonl(session_path)
+    last_consolidated = int((session_meta or {}).get("last_consolidated", 0) or 0)
+    if history:
+        print(f"已從 {session_path!r} 載入 {len(history)} 則訊息（WG-16）。")
+
+    loader = SkillsLoader(PROJECT_ROOT, PROJECT_ROOT / "builtin_skills")
+    system_text = build_system_prompt(loader)
+    system_message = SystemMessage(content=system_text)
+
+    llm = ChatOpenAI(model=CHAT_MODEL, temperature=0.2)
     llm_tools = llm.bind_tools(TOOLS)
-    consolidation_llm = ChatOpenAI(
-        model="gpt-4o-mini", temperature=CONSOLIDATION_TEMPERATURE
-    )
+    consolidation_llm = ChatOpenAI(model=CHAT_MODEL, temperature=0.2)
 
     while True:
-        user_text = input("\n\n你：").strip()
+        user_text = input("\n你：").strip()
         if user_text.lower() in ("quit", "exit", "q"):
             print("再見！")
             break
         if not user_text:
             continue
 
-        human_message = HumanMessage(content=user_text)
-        system_str = compose_system_string(loader)
-        
-        past0 = history[last_consolidated:]
-        cost = request_cost_chars(system_str, past0, human_message)
+        text, image_rel = parse_user_input(user_text)
+        if not text and not image_rel:
+            continue
 
-        # WG-17：嚴格大於 TOKEN_BUDGET 才整併；送模前壓至 ≤ TOKEN_BUDGET//2
-        if cost > token_budget:
-            target = token_budget // 2
-            while (
-                request_cost_chars(
-                    compose_system_string(loader),
-                    history[last_consolidated:],
-                    human_message,
-                )
-                > target
-            ):
-                sys_s = compose_system_string(loader)
-                past_live = history[last_consolidated:]
-                cost_now = request_cost_chars(sys_s, past_live, human_message)
-                tokens_to_remove = max(1, cost_now - target)
-                boundary = pick_consolidation_boundary(
-                    history, last_consolidated, tokens_to_remove
-                )
-                if boundary is None:
-                    break
-                b_idx = boundary[0]
-                consolidate_one_chunk(
-                    consolidation_llm, history, last_consolidated, b_idx
-                )
-                last_consolidated = b_idx
-                if session_meta is None:
-                    session_meta = _default_metadata()
-                session_meta["last_consolidated"] = last_consolidated
-                session_meta = save_session_jsonl(
-                    session_path, history, session_meta, last_consolidated
-                )
+        human_message = build_human_message_for_current_turn(text, image_rel)
+        model_name = VISION_MODEL if image_rel else CHAT_MODEL
+        if model_name != getattr(llm_tools, "model_name", CHAT_MODEL):
+            llm_turn = ChatOpenAI(model=model_name, temperature=0.2)
+            llm_tools_turn = llm_turn.bind_tools(TOOLS)
+        else:
+            llm_tools_turn = llm_tools
 
-        system_str = compose_system_string(loader)
-        past = history[last_consolidated:]
+        system_text = build_system_prompt(loader)
+        system_message = SystemMessage(content=system_text)
 
-        print("\n\n助手：", end="", flush=True)
-        reply_text, turn_messages = run_react_turn(
-            llm_tools, system_str, past, user_text
+        last_consolidated = maybe_consolidate_memory(
+            consolidation_llm,
+            history,
+            last_consolidated,
+            system_text,
+            human_message,
+        )
+
+        past = pick_past_for_turn(history, last_consolidated, system_text, human_message)
+        context_messages = messages_for_model(system_message, past, human_message)
+        idx_turn_start = 1 + len(past)
+
+        print("\n助手：", end="", flush=True)
+        _reply, turn_messages = run_react_turn(
+            llm_tools_turn,
+            context_messages,
+            idx_turn_start,
         )
         print()
 
         history.extend(turn_messages)
-        if session_meta is None:
-            session_meta = _default_metadata()
-        session_meta["last_consolidated"] = last_consolidated
         session_meta = save_session_jsonl(
             session_path, history, session_meta, last_consolidated
         )
+        print(f"（已寫入 {session_path!r}，共 {len(history)} 則；last_consolidated={last_consolidated}）")
 
 
+# WG-07：精簡進入點
 if __name__ == "__main__":
     main()
