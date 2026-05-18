@@ -1,95 +1,52 @@
-# Wiki 挑戰題（協作教案 · WG 系列）
+# Wiki 挑戰題：基礎與進階
 
-本檔為**獨立**的挑戰題教案：依 **LLM Wiki「教材統整／Python」七份統整頁**（見下方表格）對齊學習重點，將**逐段指定的程式**收成可引導學生動手的 Challenge。版面區塊（`### 情境`、`### 規格`、`### 驗收條件` 等）**僅在結構上**與專案內既有的挑戰題 markdown 慣例相同，題目內容以本檔為準。
+- **基礎挑戰（WG-01～WG-16）**：從 Python 入門到「能與模型對話、能呼叫工具、能把對話寫入／讀回檔案」的**概念與實作題**；請依題號順序完成，每題對照藍本在教師指定檔中實作與驗收。
+- **進階挑戰（WG-17～WG-21）**：在基礎段之上，練習上下文裁切、送模前整理、長期記憶、Skills 與多模態等**進階 Agent 行為**；建議基礎段通過後再接續。
 
-**若某學習重點已在同一檔案前段某個 WG 題或「已涵蓋索引」出現且驗收涵義相同**，後續新題**不重複**同一組驗收句，只在索引表註記「已涵蓋／見 WG-xx」。
+## ITS Python 基礎概念
 
-**檔案角色**：`example.py` 僅供參考、勿改；學生作答與執行以教師指定檔（常見為 `main.py`）為主。
-
-**與專案內 `basic.py`**：各題「參考 `**basic.py**`」指**該題藍本區塊內的程式切片**；倉庫根目錄的 `**basic.py`** 為 **WG-12～WG-19** 合併示範（含 `**memory/`** 長期整併；**WG-13** 工具 **ReAct** 可參考 `**memory_react_agent.py`**；**WG-14** 檔案／`exec` 工具組見 `**wiki_wg_workshop.py**`，**不**併入此合併檔；**WG-18** transcript 整備見獨立題，未必併入此合併檔）。**WG-21**（多模態附圖與 JSONL `image_path`）為獨立題，**不**併入此合併檔。教 **WG-01～10** 時請以藍本為準（或另存分段示範檔），避免學生直接開合併檔對不到當課進度。
-
-**ITS Python wiki 參考**（七份統整條目；路徑依課程約定之 Agent 庫，常見為 `G:\我的雲端硬碟\Obsidian\Agent\wiki\`）：
-
-
-| 序   | 學習主軸（由簡入繁） | wiki 條目檔名（統整頁）          |
-| --- | ---------- | ----------------------- |
-| 1   | 基礎資料與變數    | `Python-基礎資料與變數.md`     |
-| 2   | 運算與輸入輸出    | `Python-運算與輸入輸出.md`     |
-| 3   | 條件判斷與迴圈    | `Python-條件判斷與迴圈.md`     |
-| 4   | 資料結構（串列等）  | `Python-資料結構-串列元組字典.md` |
-| 5   | 函式與模組      | `Python-函式與模組.md`       |
-| 6   | 檔案與例外處理    | `Python-檔案與例外處理.md`     |
-| 7   | 類別與單元測試    | `Python-類別與單元測試.md`     |
-
+| 序 | 學習主軸（由簡入繁） | wiki 條目檔名（統整頁） |
+| --- | --- | --- |
+| 1 | 基礎資料與變數 | `Python-基礎資料與變數.md` |
+| 2 | 運算與輸入輸出 | `Python-運算與輸入輸出.md` |
+| 3 | 條件判斷與迴圈 | `Python-條件判斷與迴圈.md` |
+| 4 | 資料結構（串列等） | `Python-資料結構-串列元組字典.md` |
+| 5 | 函式與模組 | `Python-函式與模組.md` |
+| 6 | 檔案與例外處理 | `Python-檔案與例外處理.md` |
+| 7 | 類別與單元測試 | `Python-類別與單元測試.md` |
 
 ## WG 挑戰題一覽（速查）
 
-**Python 學習主軸**欄之編號，與上方 **ITS Python wiki 參考** 表之 **「序」**（1～7）一致：**1** 基礎資料與變數、**2** 運算與輸入輸出、**3** 條件與迴圈、**4** 資料結構、**5** 函式與模組、**6** 檔案與例外、**7** 類別與測試（多項以 **、** 分隔；為主軸複選，非課堂時數分配）。
+**Python 學習主軸**欄之編號，與上方 **ITS Python 基礎概念** 表之 **「序」**（1～7）一致：**1** 基礎資料與變數、**2** 運算與輸入輸出、**3** 條件與迴圈、**4** 資料結構、**5** 函式與模組、**6** 檔案與例外、**7** 類別與測試（多項以 **、** 分隔；為主軸複選，非課堂時數分配）。
 
-
-| 編號        | 標題                                          | 大概內容                                                                                                                                                                                                                                                                                                                                       | Python 學習主軸（wiki 序） |
-| --------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------- |
-| **WG-01** | 按下啟動鍵——最小進入點與第一則輸出                          | `if __name__ == "__main__"`、`print()` 字面量；直接執行與被 `import` 的差異。                                                                                                                                                                                                                                                                             | 2、7                 |
-| **WG-02** | 給台詞一個名字——變數與再輸出                             | 以變數保存字串，再交給 `print`（不接 API）。                                                                                                                                                                                                                                                                                                               | 1、2                 |
-| **WG-03** | 把身分縫進一句介紹——兩變數與 f-string                    | 多個 `str` 變數；`f"…{變數}…"` 組一句話輸出。                                                                                                                                                                                                                                                                                                            | 1、2                 |
-| **WG-04** | 替 Agent 備料——`uv add` 與頂層匯入                  | 安裝套件；檔案頂層 `import`／`from … import`；終端輸出行為對齊 **WG-03**（仍不呼叫 API）。                                                                                                                                                                                                                                                                           | 5                   |
-| **WG-05** | 讀設定、不賣鑰匙——`load_dotenv` 與安全診斷               | `load_dotenv()`、`os.getenv`；印「有／無」金鑰但不洩漏內容；單行 `#` 註解。                                                                                                                                                                                                                                                                                      | 1、5、6               |
-| **WG-06** | 有通行證才開門——`if`／`else` 依金鑰分支                  | 有金鑰與無金鑰兩種提示；仍不呼叫 `ChatOpenAI`。                                                                                                                                                                                                                                                                                                             | 3                   |
-| **WG-07** | 一行進門、其餘進房——`def main()` 與精簡進入點              | 用 `def main()` 封裝流程；進入點僅呼叫 `main()`。                                                                                                                                                                                                                                                                                                       | 5                   |
-| **WG-08** | 第一通打進大模型——`ChatOpenAI` 與 `invoke`           | 建實例、`invoke`、讀回 `content` 並 `print`；無金鑰不呼叫。                                                                                                                                                                                                                                                                                                | 5                   |
-| **WG-09** | 櫃台問答不斷線——互動迴圈與多輪 `invoke`                   | `while`、`input`、關鍵字結束；每輪 `invoke`（非串流）。                                                                                                                                                                                                                                                                                                    | 3、5                 |
-| **WG-10** | 回答像打字機——串流式 `stream`                        | 架構同 **WG-09**，改 `stream` + `print(..., end="", flush=True)`。                                                                                                                                                                                                                                                                               | 3、5                 |
-| **WG-11** | 短期記憶只活在當下——RAM 對話脈絡                         | `HumanMessage`／`AIMessage` 串列累積；`context_messages` 先組再串流，串流後才 `append`；關閉程式即清空。                                                                                                                                                                                                                                                            | 3、4、5               |
-| **WG-12** | 人設寫進系統層——`SystemMessage` 與可變系統字串            | `**get_identity()`**：課堂規則＋顯示名；**【執行環境】**（`platform.system()`）；**【exec 注意】**；`system`／`history` 分離。                                                                                           | 4、5                 |
-| **WG-13** | 會查表才算真 Agent——工具與 ReAct（單檔）                 | `@tool`、`bind_tools`、`tool_calls`、`ToolMessage`、多段 `**invoke`**；參考 `**memory_react_agent.py**`；本題不要求 JSONL／預算裁切。                                                                                                                                                                                                                           | 3、4、5               |
-| **WG-14** | 讓 Agent 有手有腳——`exec` 與檔案的 **`@tool` 最小組**        | 以 LangChain **`@tool`** 暴露五支工具；**exec** 僅單行 shell、**勿 Bash**（`<<`／heredoc）；跑 Python 先 **write_file** 再 **exec `uv run python …`**；檔案操作走專用工具；workspace 路徑限制與 UTF-8 子程序輸出。                                                                                                                                                                         | 4、5、6、7             |
-| **WG-15** | 對話落盤、人設不留痕——JSONL 先寫檔                       | 在 **WG-12** 送模結構下整檔覆寫 JSONL（首行 `metadata`；**對話列** `**user`／`assistant`／`tool`** 對齊 **WG-13**／**WG-14** 之 **ReAct** 鏈）；啟動**不**讀舊檔；**不**寫 `SystemMessage`。                                                                                                                                                                                                           | 5、6                 |
-| **WG-16** | 冷啟動撿回昨日脈絡——JSONL 載回                         | 啟動讀檔還原 `**history`**（`**assistant**` 列可還原含 `**tool_calls**` 之 `**AIMessage**`，`**tool**` 列還原 `**ToolMessage**`，對齊 **WG-15** 完整版）；壞行略過；關閉再開可接續。                                                                                                                                                                                             | 6                   |
-| **WG-17** | 視窗太窄先裁舊帳——字元預算與整併邊界                         | `estimate_message_tokens`、`pick_consolidation_boundary`、`last_consolidated`；超線裁切 `**past`**；成本含 `**ToolMessage**`（與 **WG-13**／**WG-14** 銜接）。                                                                                                                                                                                                         | 3、4、5               |
-| **WG-18** | 送模前先洗對話簿——transcript 修復與工具輸出預算              | 參考 `nanobot.agent.runner`：`messages_for_model` 管線（孤兒 tool 清理、缺洞補齊、tool 截斷、舊 tool 摘要、全對話字元預算）。                                                                                                                                                                                                                                              | 4、5、6               |
-| **WG-19** | 舊對話濃縮成長期備忘——整併與每輪讀回組裝                       | `memory/MEMORY.md`、`HISTORY.md`；超線時 **consolidation** `invoke`；`## Long-term Memory` 併入 **system**；送主模型前壓至 **≤ TOKEN_BUDGET//2**。                                                                                                                                                                                                          | 5、6                 |
-| **WG-20** | 技能卡進工具箱——最小 SkillsLoader 與 system prompt 注入 | `skills/<name>/SKILL.md`、frontmatter 摘要、workspace／builtin 合併、同名覆蓋；`**build_system_prompt(loader)`** 依序：**課堂基底**（`**get_identity()`**）→ **長期記憶**（若有）→ `**# Active Skills`**（`always` 正文）→ `**# Skills**`（繁中引導＋摘要）；大段間 `**---**`；並**銜接 WG-13／WG-14**：各 **`BaseTool`** 之輸入 **JSON Schema**（或等價 `parameters`）、`**cast_params`／`validate_params**`、在 **`invoke` 實作前** 的 **`prepare_tool_call`**（或等價流程，**不**要求自訂 `Tool`／`ToolRegistry` 類別）。 | 4、5、6               |
-| **WG-21** | 眼睛也進對話——多模態附圖、`image_path` 與 JSONL 載回閉環 | JSONL 之 `**user**` 列僅存 **`image_path`**／`**media_type**`（**不**存長 base64）；冷啟動載入 `**history**` 為**純文字占位**；**送模層** `**messages_for_model**`：**僅本輪**可含 data URL 圖區塊、**歷史**舊附圖不得重送；`**open(..., "rb")**`／base64 僅在本輪組圖時使用；須使用支援 **vision** 之模型。 | 4、5、6               |
-
+| 層級 | 編號 | 標題 | 大概內容 | Python 學習主軸（wiki 序） |
+| --- | --- | --- | --- | --- |
+| 基礎 | **WG-01** | 按下啟動鍵——最小進入點與第一則輸出 | `if __name__ == "__main__"`、`print()` 字面量；直接執行與被 `import` 的差異。 | 2、7 |
+| 基礎 | **WG-02** | 給台詞一個名字——變數與再輸出 | 以變數保存字串，再交給 `print`（不接 API）。 | 1、2 |
+| 基礎 | **WG-03** | 把身分縫進一句介紹——兩變數與 f-string | 多個 `str` 變數；`f"…{變數}…"` 組一句話輸出。 | 1、2 |
+| 基礎 | **WG-04** | 替 Agent 備料——`uv add` 與頂層匯入 | 安裝套件；檔案頂層 `import`／`from … import`；終端輸出行為對齊 **WG-03**（仍不呼叫 API）。 | 5 |
+| 基礎 | **WG-05** | 讀設定、不賣鑰匙——`load_dotenv` 與安全診斷 | `load_dotenv()`、`os.getenv`；印「有／無」金鑰但不洩漏內容；單行 `#` 註解。 | 1、5、6 |
+| 基礎 | **WG-06** | 有通行證才開門——`if`／`else` 依金鑰分支 | 有金鑰與無金鑰兩種提示；仍不呼叫 `ChatOpenAI`。 | 3 |
+| 基礎 | **WG-07** | 一行進門、其餘進房——`def main()` 與精簡進入點 | 用 `def main()` 封裝流程；進入點僅呼叫 `main()`。 | 5 |
+| 基礎 | **WG-08** | 第一通打進大模型——`ChatOpenAI` 與 `invoke` | 建實例、`invoke`、讀回 `content` 並 `print`；無金鑰不呼叫。 | 5 |
+| 基礎 | **WG-09** | 櫃台問答不斷線——互動迴圈與多輪 `invoke` | `while`、`input`、關鍵字結束；每輪 `invoke`（非串流）。 | 3、5 |
+| 基礎 | **WG-10** | 回答像打字機——串流式 `stream` | 架構同 **WG-09**，改 `stream` + `print(..., end="", flush=True)`。 | 3、5 |
+| 基礎 | **WG-11** | 短期記憶只活在當下——RAM 對話脈絡 | `HumanMessage`／`AIMessage` 串列累積；`context_messages` 先組再串流，串流後才 `append`；關閉程式即清空。 | 3、4、5 |
+| 基礎 | **WG-12** | 人設寫進系統層——`SystemMessage` 與可變系統字串 | `**get_identity()`**：課堂規則＋顯示名；**【執行環境】**（`platform.system()` 動態偵測）；**【exec 注意】**（依 OS 選 shell、Python 先 **write_file** 再 **uv run**）；`system`／`history` 分離。 | 4、5 |
+| 基礎 | **WG-13** | 會查表才算真 Agent——工具與 ReAct（單檔） | `@tool`、`bind_tools`、`tool_calls`、`ToolMessage`、多段 `**invoke`**；實作 `**run_react_turn**` 精神；本題不要求 JSONL／預算裁切。 | 3、4、5 |
+| 基礎 | **WG-14** | 讓 Agent 有手有腳——`exec` 與檔案的 **`@tool` 最小組** | 以 LangChain **`@tool`** 暴露五支工具；**exec** 僅單行 shell、**勿 Bash**（`<<`／heredoc）；跑 Python 先 **write_file** 再 **exec `uv run python …`**；檔案操作走專用工具；workspace 路徑限制與 UTF-8 子程序輸出。 | 4、5、6、7 |
+| 基礎 | **WG-15** | 對話落盤、人設不留痕——JSONL 先寫檔 | 在 **WG-12** 送模結構下整檔覆寫 JSONL（首行 `metadata`；**對話列** `**user`／`assistant`／`tool`** 對齊 **WG-13**／**WG-14** 之 **ReAct** 鏈）；啟動**不**讀舊檔；**不**寫 `SystemMessage`。 | 5、6 |
+| 基礎 | **WG-16** | 冷啟動撿回昨日脈絡——JSONL 載回 | 啟動讀檔還原 `**history`**（`**assistant**` 列可還原含 `**tool_calls**` 之 `**AIMessage**`，`**tool**` 列還原 `**ToolMessage**`，對齊 **WG-15** 完整版）；壞行略過；關閉再開可接續。 | 6 |
+| 進階 | **WG-17** | 視窗太窄先裁舊帳——字元預算與整併邊界 | `estimate_message_tokens`、`pick_consolidation_boundary`、`last_consolidated`；超線裁切 `**past`**；成本含 `**ToolMessage**`（與 **WG-13**／**WG-14** 銜接）。 | 3、4、5 |
+| 進階 | **WG-18** | 送模前先洗對話簿——transcript 修復與工具輸出預算 | 實作 `messages_for_model` 管線（孤兒 tool 清理、缺洞補齊、tool 截斷、舊 tool 摘要、全對話字元預算）。 | 4、5、6 |
+| 進階 | **WG-19** | 舊對話濃縮成長期備忘——整併與每輪讀回組裝 | `memory/MEMORY.md`、`HISTORY.md`；超線時 **consolidation** `invoke`；`## Long-term Memory` 併入 **system**；送主模型前壓至 **≤ TOKEN_BUDGET//2**。 | 5、6 |
+| 進階 | **WG-20** | 技能卡進工具箱——最小 SkillsLoader 與 system prompt 注入 | `skills/<name>/SKILL.md`、frontmatter 摘要、workspace／builtin 合併、同名覆蓋；`**build_system_prompt(loader)`** 依序：**課堂基底**（`**get_identity()`**）→ **長期記憶**（若有）→ `**# Active Skills`**（`always` 正文）→ `**# Skills**`（繁中引導＋摘要）；大段間 `**---**`；並**銜接 WG-13／WG-14**：各 **`BaseTool`** 之輸入 **JSON Schema**（或等價 `parameters`）、`**cast_params`／`validate_params**`、在 **`invoke` 實作前** 的 **`prepare_tool_call`**（或等價流程，**不**要求自訂 `Tool`／`ToolRegistry` 類別）。 | 4、5、6 |
+| 進階 | **WG-21** | 眼睛也進對話——多模態附圖、`image_path` 與 JSONL 載回閉環 | JSONL 之 `**user**` 列僅存 **`image_path`**／`**media_type**`（**不**存長 base64）；冷啟動載入 `**history**` 為**純文字占位**；**送模層** `**messages_for_model**`：**僅本輪**可含 data URL 圖區塊、**歷史**舊附圖不得重送；`**open(..., "rb")**`／base64 僅在本輪組圖時使用；須使用支援 **vision** 之模型。 | 4、5、6 |
 
 ---
 
-## 協作方式（給共同編輯者）
 
-1. **每次**在對話中貼「一段」程式（建議附：檔名、在檔案中用途一句話）。
-2. 編輯者從上表 **1～7** 參考 wiki 的「建議學習順序」小節，挑出與該段程式**直接對應**的學習重點（可複選）。
-3. **去重**：查本檔 **「已涵蓋學習重點索引」** 與已寫入的 **WG-xx**；若該重點已由先前段落涵蓋，則**不**再為同一觀念新增驗收條件，只在索引註記「已涵蓋／見 WG-xx」。
-4. 將新內容寫成下方 **Challenge WG-xx** 區塊：`### 情境`、`### 規格`、`### 驗收條件`、`### 藍本對應程式`（貼上指定程式或精簡版）。
-
----
-
-## 已涵蓋學習重點索引（去重用 · 隨協作追加）
-
-
-| wiki 序 | wiki 小節／重點（摘要）                                                                                                                                                                                                                                                                            | 涵蓋來源                            | 備註                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 2      | 用 `print()` 把字串送到終端（字面量）                                                                                                                                                                                                                                                                  | **WG-01**                       | 最小一則輸出；與「經變數再輸出」見 **WG-02**。                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| 7      | `if __name__ == "__main__"`：僅在直接執行此檔時跑區塊內程式                                                                                                                                                                                                                                               | **WG-01**                       | 最小進入點。                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| 1      | 變數賦值：以名稱保存 `str`，再交給 `print`                                                                                                                                                                                                                                                              | **WG-02**                       | 藍本將賦值寫在 `if __name__` 區塊內；不重複 WG-01「括號內字面量」的驗收句。                                                                                                                                                                                                                                                                                                                                                                                                      |
-| 1      | 多個 `str` 變數；依「是否被後續運算用到」安排賦值順序                                                                                                                                                                                                                                                            | **WG-03**（`basic.py`）           | 與 WG-02 單一 `message` 字串並列，不取代 WG-02 驗收。                                                                                                                                                                                                                                                                                                                                                                                                               |
-| 2      | **f-string**（`f"..."` 與 `{變數}` 嵌入）                                                                                                                                                                                                                                                        | **WG-03**                       | wiki「字串格式化」一節；與 `%`、`format()` 擇一主軸時本檔以 f-string 為準。                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 5      | `**uv add`** 納入依賴；`import`／`from … import` 於檔案頂層宣告（可先不呼叫）；示範檔執行結果對齊 **WG-03**                                                                                                                                                                                                             | **WG-04**（`basic.py`）           | 合併原「僅依賴」與「僅匯入」兩題；**不**呼叫 OpenAI API、**不**強求 `load_dotenv()` 或 `.env` 內容。                                                                                                                                                                                                                                                                                                                                                                              |
-| 6      | 搭配 `**python-dotenv`**：`load_dotenv()` 將 `.env` 載入程序環境；`**os.getenv**` 依名稱讀環境變數；終端診斷**不得**印出完整敏感字串                                                                                                                                                                                        | **WG-05**（`basic.py`）           | 以 `OPENAI_API_KEY` 為例；僅能印「有／無」或等價**不暴露金鑰本體**的描述。                                                                                                                                                                                                                                                                                                                                                                                                      |
-| 1      | **單行註解**（行首 `**#`**）：讓該行**不**被 Python 執行，用於暫時關掉／保留舊程式                                                                                                                                                                                                                                     | **WG-05**（`basic.py`）           | 藍本以 `#` 註解 **WG-04** 問候三行，與「命名與註解」wiki 小節對齊。                                                                                                                                                                                                                                                                                                                                                                                                          |
-| 3      | `**if`／`else`** 依條件分支輸出（本題以金鑰是否存在為例）                                                                                                                                                                                                                                                      | **WG-06**（`basic.py`）           | 在 **WG-05** 藍本上加兩支不同訊息；**仍不**呼叫 `ChatOpenAI`／`invoke`。                                                                                                                                                                                                                                                                                                                                                                                                |
-| 5      | 以 `**def main()`** 封裝主要流程；`if __name__ == "__main__":` 內**僅**呼叫 `**main()`**                                                                                                                                                                                                              | **WG-07**（`basic.py`）           | 終端行為與 **WG-06** 對齊（可加註解說明無行為變更）。                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| 5      | `**ChatOpenAI`** 建實例、`**invoke**` 繁中提示、讀取回傳訊息之 `**content**` 並 `print`；無金鑰時**不**呼叫 API                                                                                                                                                                                                    | **WG-08**（`basic.py`）           | 需網路、可能計費；依賴安裝見 **WG-04**。                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| 3      | `**while`** 互動迴圈、`**input()**` 讀使用者輸入；依關鍵字（如 `quit`）**中斷迴圈**；每輪 `**invoke`** 並印回覆                                                                                                                                                                                                         | **WG-09**（`basic.py`）           | 延續 **WG-08** 之 `llm`；本題練「多輪對話」**不含**串流。                                                                                                                                                                                                                                                                                                                                                                                                               |
-| 3      | 在迴圈內以 `**stream`** 取得增量、`print(..., end="", flush=True)` 做出**串流式**終端輸出                                                                                                                                                                                                                    | **WG-10**（`basic.py`）           | 架構同 **WG-09**，僅改「一輪回覆」的輸出方式；需網路、可能計費。                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| 4      | 以**串列**累積 `**HumanMessage`／`AIMessage`**，每輪以 `**llm.stream(context_messages)**` 串流印出（藍本 `**context_messages = [*messages, human_message]**`）、再把本輪 **Human／AI** 寫回累積串列；**關閉程式即清空**（僅 **RAM**、**不**寫檔）                                                                                      | **WG-11**（`basic.py`）           | 延續 **WG-10** 之串流體感並加上 RAM 脈絡；再 **WG-12** 將 **SystemMessage** 與 `**history`** 分離、送模 `**[system_message, *history, human_message]**`（本題可先**不**寫 JSONL）；再 **WG-13** **工具呼叫／ReAct**（單檔，參考 `**memory_react_agent.py`**）；再 **WG-14** workspace 檔案／`exec` 之 **`@tool` 最小組**（與 **WG-13** 同用 `**bind_tools**`）；再 **WG-15** 寫檔、**WG-16** 載回；再 **WG-17** 以字元長度模擬 **token** 與 `**pick_consolidation_boundary`**（`**history**` 可含 **WG-13**／**WG-14** 之 `**ToolMessage`**）；再 **WG-18** 整理送模用 **transcript**；再 **WG-19** 將超預算時之舊脈絡**摘要寫入長期檔**並每輪**讀回併入 system**。 |
-| 5      | 以 `**def get_identity()`** 組出送進模型的**系統字串**；`**SystemMessage`** 與 `**history`（僅 Human／AI）分離持有；每輪 `context_messages = [system_message, *history, human_message]` 再 `llm.stream`；本題不要求** JSONL                                                                                        | **WG-12**（`basic.py`）           | 延續 **WG-11**；示範以函式內 `**nick`** 自訂顯示名（如 `**法鬥超人**`）；通過後接 **WG-13**（**ReAct**／工具），再 **WG-14**（檔案／`exec` 工具組，選修併課堂專案），再 **WG-15**／**WG-16** 持久化。                                                                                                                                                                                                                                                                                        |
-| 6      | `**with open(..., "w", encoding="utf-8")`** 寫文字檔；`**json.dumps**`；`**os.getenv**` 指定路徑；與 `**datetime**` 產生時間戳欄位                                                                                                                                                                           | **WG-15**（`basic.py`）           | **僅寫入**：在 **WG-12** 送模結構下，每輪對話回合寫回 `**history` 後**（可含 **WG-13** `**ToolMessage`** 鏈）整檔覆寫 JSONL（首行 `**metadata**`）；啟動**不**讀檔；**不**寫 **SystemMessage**。                                                                                                                                                                                                                                                                                                 |
-| 6      | `**with open(..., encoding="utf-8")`** 讀文字檔；`**json.loads**`；`**try`／`except json.JSONDecodeError**` 略過壞行；載回後與寫檔行為閉環                                                                                                                                                                      | **WG-16**（`basic.py`）           | 在 **WG-15** 寫檔格式上，啟動時**讀回** `**history`**（`**user`／`assistant`／`tool**` 與 **WG-15** 閉環）與 `**metadata`**；送模仍對齊 `**[system_message, *history, human_message]**`；通過後接 **WG-17**。                                                                                                                                                                                                                                                                         |
-| 3      | `**for`** 自 `**last_consolidated**` 掃描 `**history**`，累加 `**estimate_message_tokens**`；在 `**HumanMessage**` 回合開頭更新 `**last_boundary**`，達 `**tokens_to_remove**` 即回傳 `**(idx, removed_tokens)**`；`**TOKEN_BUDGET**` 以常數或 `**int(os.getenv(...))**`（選修）定義                                    | **WG-17**（`main.py`／`basic.py`） | 延續 **WG-16**；`**history`** 與成本可含 `**ToolMessage**`（**WG-13**）；裁切邊界對齊 `**pick_consolidation_boundary`**；**完整** `**history`／JSONL**；須能說明 `**TOKEN_BUDGET`** 與 `**TOKEN_BUDGET // 2**` 如何換算成 `**tokens_to_remove**`；通過後接 **WG-18**（**transcript** 送模副本）再 **WG-19**（長期記憶整併）。                                                                                                                                                                              |
-| 6      | `**Path`** 與專用目錄 `**memory/**`；`**MEMORY.md` 覆寫**、`**HISTORY.md` 追加**（`**[YYYY-MM-DD HH:MM]`** 前綴）；超預算時以**第二支** LLM `**invoke`** 做整併、解析結構化結果；送**主**模型前成本須 **≤ `TOKEN_BUDGET // 2`**；固定子字串 `**## Long-term Memory**` 併入 `**SystemMessage.content**`（**不得**改放成 **user／assistant／tool** 對話列） | **WG-19**（`basic.py`／`main.py`） | 規格本質參考 `**long-term-memory-template`** 之 **Challenge A**（該檔為單題完整條文）；本題疊在 **WG-18** 之上：**JSONL** 與 **metadata**（`**last_consolidated`** 等）延續 **WG-15～16**（可含 `**tool`** 列）；長期脈絡改由 `**MEMORY.md`／`HISTORY.md**` 承載。                                                                                                                                                                                                                                     |
-| 4      | `**HumanMessage**` 之 `**content**` 可為**訊息區塊串列**（如 `**type: "text"**` 與 `**type: "image_url"**`）；**僅本輪送模**時自磁碟讀取影像位元組、編碼為 **base64 data URL** 後嵌入區塊；**歷史**附圖回合於送模副本中改為純文字占位（見 **`messages_for_model`**）                                                                                                                                                               | **WG-21**（`main.py`）             | 須使用支援 **vision** 之聊天模型（如 **`gpt-4o`**）；本題驗收**不要求**併 **WG-13** 之 **ReAct**／`**tool_calls**`（可假設純 **Human／Assistant** 對話＋附圖回合）。                                                                                                                                                                                                                                                                                                                                                    |
-| 6      | JSONL 之 `**user**` 列在 **WG-15** 基礎上擴充**可選**鍵 **`image_path`**／`**media_type**`；**不得**將圖檔全文 base64 寫入 JSONL；**WG-16** 載回時以**純文字占位**還原曾附圖之 `**user**`（**不必** `**open(..., "rb")**`）；本輪附圖與送模層剝除規則見題內 **規格**；檔案不存在時行為須與規格一致                                                                                                                                                       | **WG-21**（`main.py`）             | 與 **WG-15～16** 寫入／載回閉環；**首行 `metadata`** 與 `**assistant**` 列格式維持與 **WG-15** 對齊（本題不強求新增 `**tool**` 列）。                                                                                                                                                                                                                                                                                                                                                                      |
-
+# 第一部分 · 基礎挑戰（WG-01～WG-16）
 
 ---
 
@@ -103,21 +60,22 @@
 
 - 使用 `if __name__ == "__main__":` 作為程式進入點慣例。
 - 進入點區塊內呼叫 `print`，引數為字串字面量（藍本為 `"Hello, World!"`；若要本土化可改繁中招呼句，但須仍為單一 `str` 字面量）。
-- 檔名可維持 `basic.py` 作為課堂示範，或請學生抄入教師指定之作答檔（依班級流程擇一即可）。
+- 作答與驗收以**教師指定檔名**為準（依班級流程擇一即可）。
 
 ### 驗收條件
 
-- 在專案根目錄以 `uv run basic.py`（或教師指定之檔名）執行，終端機出現預期字樣。
+- 在專案根目錄以 `uv run <教師指定檔名>`（或教師指定之檔名）執行，終端機出現預期字樣。
 - 能說明：`print(...)` 括號內的資料，在 Python 裡屬於哪一種基本型態？
 - 能一句話說明：為什麼要把 `print` 寫在 `if __name__ == "__main__":` **底下**（與「被別的檔 `import` 時不要自動跑」有關即可）。
-- 能描述一個**邊界**：若有另一支程式只寫了 `import basic`（檔名依實際為準），執行那支程式時，你預期終端會不會出現 `Hello, World!`？為什麼？
+- 能描述一個**邊界**：若有另一支程式只寫了 `import <你的模組檔名>`（檔名依實際為準），執行那支程式時，你預期終端會不會出現 `Hello, World!`？為什麼？
 
-### 藍本對應程式（`basic.py`）
+### 藍本對應程式
 
 ```python
 if __name__ == "__main__":
     print("Hello, World!")
 ```
+
 
 ---
 
@@ -135,19 +93,20 @@ if __name__ == "__main__":
 
 ### 驗收條件
 
-- `uv run basic.py` 終端機仍出現預期問候字樣。
+- `uv run <教師指定檔名>` 終端機仍出現預期問候字樣。
 - 能說明：`message`（或自訂的同名變數）綁到的是哪一種基本型態？
 - 能連結回 **WG-01**：為什麼現在 `print` 的括號裡**不必**再寫字面量 `"Hello, World!"` 也能印出同樣結果？
 - **邊界**：若把區塊內的 `message = "Hello, World!"` 改成 `message = "Hi"`，其餘行不變，你預期輸出會變成什麼？為什麼？
-- **邊界**：若有另一支程式只寫了 `import basic`（檔名依實際為準）並執行，你預期此時模組裡是否一定已經有 `message` 這個名稱？為什麼？（與進入點區塊有沒有跑過有關即可。）
+- **邊界**：若有另一支程式只寫了 `import <你的模組檔名>`（檔名依實際為準）並執行，你預期此時模組裡是否一定已經有 `message` 這個名稱？為什麼？（與進入點區塊有沒有跑過有關即可。）
 
-### 藍本對應程式（`basic.py`）
+### 藍本對應程式
 
 ```python
 if __name__ == "__main__":
     message = "Hello, World!"
     print(message)
 ```
+
 
 ---
 
@@ -168,12 +127,12 @@ if __name__ == "__main__":
 
 ### 驗收條件
 
-- `uv run basic.py` 終端機出現**一整句**問候，且句中可看出你設定的名稱或稱呼（與藍本精神一致即可）。
+- `uv run <教師指定檔名>` 終端機出現**一整句**問候，且句中可看出你設定的名稱或稱呼（與藍本精神一致即可）。
 - 能說明：`message` 這一行裡，大括號 `{...}` 在執行時會被替換成什麼？
 - 能說明：為什麼 `agent_name`（或你的對應變數）那一行**必須**寫在組出 `message` 的那一行**上面**？（若反過來寫會發生什麼，用自己的話即可。）
 - **邊界**：只把 `agent_name` 的字串改成另一個名字、其餘不變，你預期輸出哪裡會變、哪裡不會變？
 
-### 藍本對應程式（`basic.py`）
+### 藍本對應程式
 
 ```python
 if __name__ == "__main__":
@@ -182,13 +141,14 @@ if __name__ == "__main__":
     print(message)
 ```
 
+
 ---
 
-## Challenge WG-04：替 Agent 備料——`uv add` 安裝依賴與 `basic.py` 頂層匯入（終端輸出對齊 WG-03）
+## Challenge WG-04：替 Agent 備料——`uv add` 安裝依賴與頂層匯入（終端輸出對齊 WG-03）
 
 ### 情境
 
-後續單元會用到 **OpenAI 相關的 LangChain 整合**（套件發佈名為 `langchain-openai`）以及從 `**.env` 讀設定**（常搭配 `python-dotenv`）。本題**一次**完成兩件事，讓「套件進專案」與「程式裡怎麼引用名稱」連在一起：（1）在已用 **uv** 管理的專案**根目錄**用 `**uv add`** 把兩套件寫進 `pyproject.toml`（並由 uv 維護 lock／環境）；（2）在示範檔（藍本為 `basic.py`）**最上方**寫入兩行 `from … import`，**進入點內**仍只做與 **WG-03** 相同的問候（`agent_name`、f-string `message`、`print`）——**先不要**建立 `ChatOpenAI`、打 API、也不要求建立或提交 `.env` 內容，避免與下一階段混線。通過後可銜接 **WG-05**（在進入點呼叫 `load_dotenv`、用 `os.getenv` 讀 `OPENAI_API_KEY`，並以**不暴露完整金鑰**的方式印出診斷）。
+後續單元會用到 **OpenAI 相關的 LangChain 整合**（套件發佈名為 `langchain-openai`）以及從 `**.env` 讀設定**（常搭配 `python-dotenv`）。本題**一次**完成兩件事，讓「套件進專案」與「程式裡怎麼引用名稱」連在一起：（1）在已用 **uv** 管理的專案**根目錄**用 `**uv add`** 把兩套件寫進 `pyproject.toml`（並由 uv 維護 lock／環境）；（2）在示範檔（藍本見下方）**最上方**寫入兩行 `from … import`，**進入點內**仍只做與 **WG-03** 相同的問候（`agent_name`、f-string `message`、`print`）——**先不要**建立 `ChatOpenAI`、打 API、也不要求建立或提交 `.env` 內容，避免與下一階段混線。通過後可銜接 **WG-05**（在進入點呼叫 `load_dotenv`、用 `os.getenv` 讀 `OPENAI_API_KEY`，並以**不暴露完整金鑰**的方式印出診斷）。
 
 ### 規格
 
@@ -219,10 +179,10 @@ if __name__ == "__main__":
 
 **示範檔行為與理解**
 
-- 在專案根執行 `uv run basic.py`（或教師指定之同結構檔名），終端機出現**一整句**問候，且句中可看出 `agent_name` 設定的名稱或稱呼（與 **WG-03** 精神一致即可）。
+- 在專案根執行 `uv run <教師指定檔名>`（或教師指定之同結構檔名），終端機出現**一整句**問候，且句中可看出 `agent_name` 設定的名稱或稱呼（與 **WG-03** 精神一致即可）。
 - 能說明：`from langchain_openai import ChatOpenAI` 這一行裡，`ChatOpenAI` 是從哪一個**已安裝套件**（PyPI 上的發佈名稱）拿出來的名稱？
 - 能說明：`from dotenv import load_dotenv` 對應的是哪一個 PyPI 套件？若程式裡**沒有**呼叫 `load_dotenv()`，執行時**環境變數是否會因此自動從 `.env` 載入**？（用自己的話即可。）
-- **邊界**：若把兩行頂層 `from … import` 整段刪掉、進入點內容不變，在已安裝兩依賴的專案裡，`uv run basic.py` 是否仍可能正常輸出問候？為什麼？（與「有沒有用到那些名稱」有關即可。）
+- **邊界**：若把兩行頂層 `from … import` 整段刪掉、進入點內容不變，在已安裝兩依賴的專案裡，`uv run <教師指定檔名>` 是否仍可能正常輸出問候？為什麼？（與「有沒有用到那些名稱」有關即可。）
 
 ### 藍本對應
 
@@ -236,7 +196,7 @@ uv add langchain-openai python-dotenv
 uv run python -c "import langchain_openai; import dotenv; print('deps-ok')"
 ```
 
-**示範檔全檔（`basic.py`）**
+**示範檔全檔**
 
 ```python
 from langchain_openai import ChatOpenAI
@@ -248,6 +208,7 @@ if __name__ == "__main__":
     print(message)
 ```
 
+
 ---
 
 ## Challenge WG-05：讀設定、不賣鑰匙——`load_dotenv`、讀環境變數與安全診斷輸出
@@ -258,8 +219,8 @@ if __name__ == "__main__":
 
 ### 規格
 
-- **檔案**：在**專案根目錄**建立新檔 `**.env`**（檔名開頭為點號；與示範檔 `basic.py` 同層、不在子資料夾），內容至少含 `OPENAI_API_KEY=` 與對應值；若課堂採「僅用系統環境變數、不建檔」可經教師口頭約定略過建檔步驟，但驗收時仍須能說明「有／無 `.env` 時 `getenv` 差異」。
-- 在示範檔（藍本為 `basic.py`）頂層新增 `**import os**`（與既有兩行 `from … import` 並列，順序可為：`ChatOpenAI`、`load_dotenv`、`os`）。
+- **檔案**：在**專案根目錄**建立新檔 `**.env`**（檔名開頭為點號；與示範檔 同層、不在子資料夾），內容至少含 `OPENAI_API_KEY=` 與對應值；若課堂採「僅用系統環境變數、不建檔」可經教師口頭約定略過建檔步驟，但驗收時仍須能說明「有／無 `.env` 時 `getenv` 差異」。
+- 在示範檔（藍本見下方）頂層新增 `**import os**`（與既有兩行 `from … import` 並列，順序可為：`ChatOpenAI`、`load_dotenv`、`os`）。
 - 在 `if __name__ == "__main__":` 區塊內，**第一行**呼叫 `**load_dotenv()`**（讓後續 `os.getenv` 能讀到 `.env` 寫入的變數）。
 - 以變數（例如 `api_key`）保存 `**os.getenv("OPENAI_API_KEY")**` 的結果。
 - **診斷輸出**：僅能印出「已設定／未設定」或等價語意，**不得**在 `print`／f-string 中嵌入 `{api_key}` 或任何會印出金鑰本體的寫法。
@@ -268,14 +229,14 @@ if __name__ == "__main__":
 ### 驗收條件
 
 - 已在**專案根**建立 `**.env`** 新檔並寫入 `OPENAI_API_KEY`（或經教師同意改以系統環境變數測試，但仍能連結回說明「根目錄 `.env`」的用途）。
-- 在專案根執行 `uv run basic.py`（或教師指定檔名），終端出現**一行**金鑰狀態診斷（有／無或等價），**不**出現完整 `sk-…` 或長密文本體（亦**不**在 f-string 內嵌 `{api_key}`）。
+- 在專案根執行 `uv run <教師指定檔名>`（或教師指定檔名），終端出現**一行**金鑰狀態診斷（有／無或等價），**不**出現完整 `sk-…` 或長密文本體（亦**不**在 f-string 內嵌 `{api_key}`）。
 - 能說明：`load_dotenv()` 放在區塊開頭與放在 `print` 之後，對「`os.getenv` 讀不讀得到 `.env`」可能差在哪？
 - **邊界**：若專案根**沒有** `.env` 檔、也沒在系統預先匯出 `OPENAI_API_KEY`，你預期 `os.getenv("OPENAI_API_KEY")` 多半是什麼？診斷行應長什麼樣？
 - 能說明：藍本裡問候那幾行前面的 `**#`** 有什麼效果？若把其中一行的 `#` 刪掉、其餘仍保留註解，執行時可能發生什麼事？
 
 ### 藍本對應
 
-**示範檔全檔（`basic.py`）**
+**示範檔全檔**
 
 ```python
 from langchain_openai import ChatOpenAI
@@ -290,6 +251,7 @@ if __name__ == "__main__":
     # message = f"Hello, 我是{agent_name}，很開心認識你!"
     # print(message)
 ```
+
 
 ---
 
@@ -308,13 +270,13 @@ if __name__ == "__main__":
 
 ### 驗收條件
 
-- `uv run basic.py`：無金鑰時與有金鑰時（或暫時改環境／`.env`），**狀態提示行**文字不同，且皆**不**洩漏完整金鑰。
+- `uv run <教師指定檔名>`：無金鑰時與有金鑰時（或暫時改環境／`.env`），**狀態提示行**文字不同，且皆**不**洩漏完整金鑰。
 - 能指出：`if` 的條件式為何能同時涵蓋 `None` 與空字串兩種「沒有可用金鑰」的情況？（用自己的話即可。）
 - **邊界**：若誤寫成 `if api_key == True:`，與 `if api_key:` 在本題情境下可能差在哪？（提示：變數型態。）
 
 ### 藍本對應
 
-**示範檔全檔（`basic.py`）**
+**示範檔全檔**
 
 ```python
 from langchain_openai import ChatOpenAI
@@ -333,6 +295,7 @@ if __name__ == "__main__":
     # print(message)
 ```
 
+
 ---
 
 ## Challenge WG-07：一行進門、其餘進房——收成 `def main()` 與精簡進入點
@@ -350,13 +313,13 @@ if __name__ == "__main__":
 
 ### 驗收條件
 
-- `uv run basic.py` 在「有金鑰／無金鑰」兩種情境下，**分支與早退**（`return`）行為與**本題藍本**一致；狀態字樣以藍本為準（不必與 **WG-06** 逐字相同）。
+- `uv run <教師指定檔名>` 在「有金鑰／無金鑰」兩種情境下，**分支與早退**（`return`）行為與**本題藍本**一致；狀態字樣以藍本為準（不必與 **WG-06** 逐字相同）。
 - 能說明：為什麼「只把程式搬進函式」通常**不會**改變執行結果，但對維護有幫助？
 - **邊界**：若誤把 `load_dotenv()` **只**放在 `if __name__` 區塊、卻放在 `main()` 呼叫**之後**，會發生什麼事？
 
 ### 藍本對應
 
-**示範檔全檔（`basic.py`）**
+**示範檔全檔**
 
 ```python
 from langchain_openai import ChatOpenAI
@@ -379,6 +342,7 @@ if __name__ == "__main__":
     main()
 ```
 
+
 ---
 
 ## Challenge WG-08：第一通打進大模型——`ChatOpenAI` 與 `invoke` 最小呼叫
@@ -399,14 +363,14 @@ if __name__ == "__main__":
 
 ### 驗收條件
 
-- 有設定有效 `OPENAI_API_KEY` 時，`uv run basic.py` 會印出**至少一行**模型產生的繁中文本（非空），且**不**含完整金鑰字串。
+- 有設定有效 `OPENAI_API_KEY` 時，`uv run <教師指定檔名>` 會印出**至少一行**模型產生的繁中文本（非空），且**不**含完整金鑰字串。
 - 未設定金鑰時，程式**不**拋出未捕捉的 API 認證錯誤（應走 `else` 並 `**return`** 早退，**不**執行 `ChatOpenAI`／`invoke`），且終端仍友善提示。
 - 能說明：`invoke` 的回傳值型別為何通常**不是**純 `str`，卻仍可用 `.content` 取出要給使用者看的文字？
 - **邊界**：若金鑰錯誤或網路中斷，你預期程式可能在哪一行附近失敗？（不要求本題寫完整 `try`／`except`，能說出觀察點即可。）
 
 ### 藍本對應
 
-**示範檔全檔（`basic.py`）**
+**示範檔全檔**
 
 ```python
 from langchain_openai import ChatOpenAI
@@ -433,6 +397,7 @@ if __name__ == "__main__":
     main()
 ```
 
+
 ---
 
 ## Challenge WG-09：櫃台問答不斷線——互動迴圈與多輪 `invoke`
@@ -454,14 +419,14 @@ if __name__ == "__main__":
 
 ### 驗收條件
 
-- 有金鑰時，`uv run basic.py` 可進入迴圈：至少手動輸入**兩輪**一般問題，助手回覆皆為可讀繁中（或課堂約定語言），且**不**洩漏金鑰。
+- 有金鑰時，`uv run <教師指定檔名>` 可進入迴圈：至少手動輸入**兩輪**一般問題，助手回覆皆為可讀繁中（或課堂約定語言），且**不**洩漏金鑰。
 - 輸入結束指令後程式**正常結束**（無未捕捉錯誤），且**不**再呼叫下一輪 API。
 - 能說明：為什麼用 `**while True`** 搭配 `**break**`，而不是只寫一個「條件式 `while`」？
 - **邊界**：若使用者第一輪就直接輸入結束指令，你預期會印幾次模型回覆？為什麼？
 
 ### 藍本對應
 
-**示範檔全檔（`basic.py`）**
+**示範檔全檔**
 
 ```python
 from langchain_openai import ChatOpenAI
@@ -495,6 +460,7 @@ if __name__ == "__main__":
     main()
 ```
 
+
 ---
 
 ## Challenge WG-10：回答像打字機——串流式回答（`stream`）
@@ -519,7 +485,7 @@ if __name__ == "__main__":
 
 ### 藍本對應
 
-**示範檔全檔（`basic.py`）**
+**示範檔全檔**
 
 ```python
 from langchain_openai import ChatOpenAI
@@ -555,6 +521,7 @@ def main() -> None:
 if __name__ == "__main__":
     main()
 ```
+
 
 ---
 
@@ -592,7 +559,7 @@ if __name__ == "__main__":
 
 ### 藍本對應
 
-**示範檔全檔（`basic.py`）**
+**示範檔全檔**
 
 ```python
 from langchain_openai import ChatOpenAI
@@ -643,6 +610,7 @@ if __name__ == "__main__":
     main()
 ```
 
+
 ---
 
 ## Challenge WG-12：人設寫進系統層——SystemMessage 與可變系統字串
@@ -651,7 +619,7 @@ if __name__ == "__main__":
 
 **WG-11** 已能以 `**HumanMessage`／`AIMessage`** 串列維持多輪脈絡，但尚未在送模串列**最前**固定放入「課堂規則、人設、安全邊界」等**系統層**文字。實務上常把這些收斂成 `**get_identity()`** 回傳的一整段字串，再包成 `**SystemMessage**`，且**不**跟著 `**user`／`assistant`** 逐句寫進對話檔（若日後有 **JSONL**，仍只存人機回合）。
 
-本題在**延續 WG-11 的串流節奏**、且**仍可不寫入磁碟**的前提下，練習 `**system_message` 與 `history` 分離**：累積側建議 `**history: list[BaseMessage]`**（僅 **Human／AI**），每輪 `**context_messages = [system_message, *history, human_message]`** 再 `**llm.stream**`。**專案示範檔 `basic.py`** 若合併多題，會再加上 `**load_session_jsonl`／`save_session_jsonl**`（見 **WG-15～16**）；本題獨立作答時**不要求** JSONL，以免與「先釐清 system／history 分工」混淆。
+本題在**延續 WG-11 的串流節奏**、且**仍可不寫入磁碟**的前提下，練習 `**system_message` 與 `history` 分離**：累積側建議 `**history: list[BaseMessage]`**（僅 **Human／AI**），每輪 `**context_messages = [system_message, *history, human_message]`** 再 `**llm.stream**`。若在同一作答檔合併多題，會再加上 `**load_session_jsonl`／`save_session_jsonl**`（見 **WG-15～16**）；本題獨立作答時**不要求** JSONL，以免與「先釐清 system／history 分工」混淆。
 
 通過後可銜接 **WG-13**：在單檔內練習 `**bind_tools`**、`**ToolMessage**` 與 **ReAct** 式多段 `**invoke`**。再銜接 **WG-14**（檔案／`exec` 工具組，選修併專案）。再銜接 **WG-15**／**WG-16** 將 `**history`**（可含 `**ToolMessage**`）寫入／讀回 **JSONL**（送模仍維持 `**[system_message, *history, human_message]`**），之後再接 **WG-17** 預算裁切、**WG-18**（**transcript**）與 **WG-19**（長期記憶）。
 
@@ -659,8 +627,8 @@ if __name__ == "__main__":
 
 - 延續 **WG-07～11**：`def main()`、`load_dotenv`、無金鑰則印提示後 `**return`**；有金鑰時 `**ChatOpenAI**`、`**while True**`、`input()`、結束指令、空白行 `**continue**`。
 - 在進入 `**while**` 之前：實作 `**def get_identity() -> str**`，並建立 `**system_message = SystemMessage(content=get_identity())**`；`**history: list[BaseMessage] = []**`（啟動時**不**從檔案載入）。
-- `**get_identity()` 回傳字串**須含（1）**課堂規則**（`**system_text`**，須含「**繁體中文**」）；（2）**顯示名稱**（`**nick`**）；（3）**【執行環境】**：`**platform.system()`** 與 `**os.name**` 動態寫入，並附與該 OS 相容的 exec 提示；（4）**【exec 注意】**：依【執行環境】選 shell；Python 先 **write_file** 再 **exec** `uv run python 相對路徑`。**本函式不要求**併入 **WG-13** 工具細則。
-- **合併工作坊（WG-20 起）**：`**build_system_prompt(loader)**` 直接呼叫 `**get_identity()`** 作為課堂基底，**勿**再包別名函式。WG-13 工具約束可改由 tool **docstring** 補足。
+- `**get_identity()` 回傳字串**須含（1）**一段課堂規則**（`**system_text`**，須含「**繁體中文**」等可驗收關鍵字）；（2）**一段顯示名稱**（`**nick`**，如 `**法鬥超人**`）；（3）**【執行環境】**：以 `**platform.system()`**（與 `**os.name**`）在**程式啟動時**寫入實際 OS（如 Windows／Darwin／Linux），並附一句**與該 OS 相容的 exec 提示**（藍本：`os.name == "nt"` 時註明 PowerShell、勿 `<<`／heredoc；其餘系統可簡化）；（4）**【exec 注意】**：請依【執行環境】選擇 shell 寫法、勿假設 Linux Bash；執行 Python 先 **write_file** 再 **exec** `uv run python 相對路徑`（與 **WG-14** 一致）。**本函式不要求**併入 **WG-13** 工具細則。
+- **合併進階題（WG-20 起）**：`**build_system_prompt(loader)**` 直接呼叫本題 `**get_identity()`** 作為課堂基底，**勿**再包一層 `build_classroom_base_prompt` 等別名函式。WG-13 工具約束可不寫進 `get_identity()`，改由 tool **docstring** 或 ReAct 前組裝補足。
 - 每一輪有效使用者輸入：送進模型處與 **WG-11** 同一精神——**先組本輪 `context_messages`、串流成功後才把本輪 Human／AI 寫回累積**。建議命名：`**human_message = HumanMessage(...)`** → `**context_messages = [system_message, *history, human_message]**` → `**llm.stream(context_messages)**` → `**history.append(human_message)**`、`**history.append(AIMessage(...))**`。**不要**把 `**system`** 與 `**history**` 硬併成「迴圈內一路 `**append**` 的單一串列」。
 - **禁止**：把 `**SystemMessage`** 當成一般對話列 `**append` 進 `history**`；**本題不要求**實作 `**save_session_jsonl`**／讀檔（留給 **WG-15**／**WG-16**）。
 - **不要求**：改 **metadata** 或 **JSONL** 欄位（尚無檔案格式）。
@@ -669,14 +637,14 @@ if __name__ == "__main__":
 
 - 有金鑰時，`**llm.stream(context_messages)`**（`**context_messages = [system_message, *history, human_message]**` 或語意等價）能跑通，且終端串流行為與 **WG-11** 一致（前綴 `**助手：`** 等可保留）。
 - 能指出：程式**哪一段**建立 `**system_message`**、**哪一段**初始化 `**history`**，以及迴圈內**哪一行**把兩者與 `**human_message`** 組進 `**context_messages**`。
-- 能說明：`**get_identity()**` 回傳字串裡，**課堂規則**、**顯示名稱**、**【執行環境】**與**【exec 注意】**各對應哪一段；【執行環境】須為啟動時偵測，不可手寫錯誤 OS。
-- 修改 `**nick`** 或於不同 OS 重開後，system 區塊應反映新內容。
+- 能說明：`**get_identity()**` 回傳字串裡，**課堂規則**、**顯示名稱**、**【執行環境】**與**【exec 注意】**各對應哪一段；**【執行環境】**須為啟動時偵測結果，不可手寫固定成錯誤 OS。
+- 修改 `**nick`** 或換一台電腦（不同 OS）後重開程式，模型收到的 system 區塊應反映新字串／新【執行環境】。
 - 能一句話說明：為何 **system** 不放在 `**history`** 裡與人機回合混在同一串列（並參考「**JSONL** 對話列通常存 **user／assistant**；併 **WG-13**／**WG-14** 時另含 `**tool`** 列，見 **WG-15**」）。
 - **邊界**：`**context_messages[0]`** 是哪一種訊息？本輪 `**human_message` 在送模串列中的位置**為何（相對於 `**history`**）？
 
 ### 藍本對應
 
-以下節錄對齊 `**get_identity**` 與 `**system_message`／`history` 分離**（**本題可不寫 JSONL**）。**專案根目錄 `basic.py`** 合併 **WG-12～WG-19** 時會再接 `**load_session_jsonl`／`save_session_jsonl`**（**WG-15～16**）。
+以下節錄對齊 `**get_identity**` 與 `**system_message`／`history` 分離**（**本題可不寫 JSONL**）。完成 **WG-15～16** 後，合併進階題時會再接 `**load_session_jsonl`／`save_session_jsonl`**（**WG-15～16**）。
 
 ```python
 import os
@@ -720,15 +688,16 @@ def main() -> None:
     # history.append(human_message); history.append(AIMessage(...))
 ```
 
+
 ---
 
 ## Challenge WG-13：會查表才算真 Agent——工具呼叫與 ReAct 迴圈（單檔）
 
 ### 情境
 
-**WG-12** 讓模型以 **system + history + 本輪使用者** 往來，回覆皆為**純文字**。實務上常讓模型**決定何時呼叫工具**（計算、查詢、對外 API 等），再依**工具回傳**續寫下一則模型訊息，直到不再需要工具——這種「**Reason + Act**」迴圈常稱 **ReAct**。本題在**單一 `.py` 檔**內練習 `**@tool`**、`**bind_tools**`、`**tool_calls**` 與 `**ToolMessage**`，與 `**memory_react_agent.py**` 之 `**run_react_turn**` 精神對齊；**不要求**本題接 **JSONL**／持久化／字元預算，以免與後續 **WG-17** 混淆。
+**WG-12** 讓模型以 **system + history + 本輪使用者** 往來，回覆皆為**純文字**。實務上常讓模型**決定何時呼叫工具**（計算、查詢、對外 API 等），再依**工具回傳**續寫下一則模型訊息，直到不再需要工具——這種「**Reason + Act**」迴圈常稱 **ReAct**。本題在**單一 `.py` 檔**內練習 `**@tool`**、`**bind_tools**`、`**tool_calls**` 與 `**ToolMessage**`，與本課 **ReAct** 藍本（`**run_react_turn**`）精神對齊；**不要求**本題接 **JSONL**／持久化／字元預算，以免與後續 **WG-17** 混淆。
 
-通過後可銜接 **WG-14**（workspace 檔案／`exec` 五支 **`@tool`**，仍可不接 **JSONL**），再 **WG-15**：在 **WG-12** 送模結構下將 `**history`**（含 **ReAct** 鏈之 `**ToolMessage`**）寫入 **JSONL**（仍不寫 **system**），再 **WG-16** 載回；之後 **WG-17** 以 `**pick_consolidation_boundary`** 做短期送模裁切（成本與 `**history**` 一併納入 `**ToolMessage**`；邊界仍以 **Human 回合開頭**為主，與 `**memory_react_agent`** 類題可參考）。
+通過後可銜接 **WG-14**（workspace 檔案／`exec` 五支 **`@tool`**，仍可不接 **JSONL**），再 **WG-15**：在 **WG-12** 送模結構下將 `**history`**（含 **ReAct** 鏈之 `**ToolMessage`**）寫入 **JSONL**（仍不寫 **system**），再 **WG-16** 載回；之後 **WG-17** 以 `**pick_consolidation_boundary`** 做短期送模裁切（成本與 `**history**` 一併納入 `**ToolMessage**`；邊界仍以 **Human 回合開頭**為主，與 **WG-13** ReAct 整輪語意可參考）。
 
 ### 規格
 
@@ -751,7 +720,7 @@ def main() -> None:
 
 ### 藍本對應
 
-以下為**結構示意**（**非**完整可執行檔）；完整邏輯見 `**memory_react_agent.py`** 之 `**run_react_turn**` 與 `**main**` 呼叫方式。
+以下為**結構示意**（**非**完整可執行檔）；完整邏輯見下方藍本之 `**run_react_turn**` 與 `**main**` 呼叫方式。
 
 ```python
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -779,6 +748,7 @@ TOOLS = [add_numbers]
 #         break
 ```
 
+
 ---
 
 ## Challenge WG-14：讓 Agent 有手有腳——`exec` 與檔案的 LangChain **`@tool` 最小組**
@@ -789,13 +759,13 @@ TOOLS = [add_numbers]
 
 核心觀念只有一句：**檔案操作走檔案工具，shell 指令才走 `exec`**。也就是說，讀檔不用 `cat`、寫檔不用 `echo >`、改檔不用 `sed -i`；`exec` 留給 `python --version`、`uv run pytest`、執行示範檔這類外部指令。
 
-**Agent 使用 `exec` 時**：先讀 **WG-12** 的 **【執行環境】**（`platform.system()` 動態產生），再下相容的單行指令；多行 Python 須 **write_file → `uv run python …`**。**【執行環境】**與**【exec 注意】**皆在 `get_identity()`（**WG-20** 起經 `build_system_prompt(loader)` 併入送模字串）。
+**Agent 使用 `exec` 時**：先讀 **WG-12** 送模字串中的 **【執行環境】**（`platform.system()` 動態產生），再下**單行**相容指令；多行 Python 須 **write_file → `uv run python …`**。**【exec 注意】** 與 **【執行環境】** 皆在 `get_identity()`（**WG-20** 起經 `build_system_prompt(loader)` 併入送模字串），讓模型每輪都看得到。
 
 本題**不要求**自訂 `Tool` dataclass 或 `ToolRegistry` 類別；**選讀**：可將 **`TOOLS`** 傳入 **`llm.bind_tools(TOOLS)`** 做端到端驗收；若課堂拆步，亦可先用 **`BaseTool.invoke`**（或等價）做**手動**流程驗收。
 
 ### 規格
 
-- 建立 `tools_demo.py`（或教師指定檔，如併入 `main.py`），依賴 **`langchain_core`**（與 **WG-13** 一致）。
+- 在教師指定作答檔中實作，依賴 **`langchain_core`**（與 **WG-13** 一致）。
 - 以 **`@tool`**（必要時 **`@tool("exec")`** 等）裝飾五個實作函式，對外工具名稱須為 **`read_file`**、**`write_file`**、**`edit_file`**、**`list_dir`**、**`exec`**（與模型 function calling 對齊）。
 - 定義 **`TOOLS: list`**，內含上述五個 **`BaseTool`** 實例，順序自訂但須固定、可重現。
 - 設定 **`WORKSPACE = Path.cwd().resolve()`**；**`resolve_workspace_path`**：僅允許**相對路徑**解析到 workspace 底下（**建議**拒絕絕對路徑）；像 **`../outside.txt`** 須拒絕或回傳清楚錯誤，不可寫到 workspace 外。
@@ -805,7 +775,7 @@ TOOLS = [add_numbers]
 - **`list_dir(path, …)`**：列出資料夾內容；目標不是資料夾時回傳錯誤。**語意上為唯讀**。
 - **`exec`（實作函式名可自訂，例如 `exec_workspace`）**：以 **`subprocess.run`** 在 **`WORKSPACE`** 下執行 shell 指令，回傳 exit code 與輸出摘要；至少阻擋 **`rm -rf`**、**`del /f`**、**`rmdir /s`**、**`format`**、**`shutdown`** 等危險片段。
 - **`exec` 與子程序輸出編碼（跨平台必讀）**：在 **`capture_output=True`** 且 **`text=True`** 時，若未指定 **`encoding`**，**Python 會用系統預設編碼**去解 stdout／stderr。在 **繁中 Windows** 上常為 **cp950**；子程序若輸出 **UTF-8**（許多 CLI、日誌、**`uv`**／**`python`** 的訊息），背景讀取執行緒可能拋出 **`UnicodeDecodeError`**（終端機出現 **`Thread-* (_readerthread)`** 之類 traceback，主流程甚至仍回傳空輸出）。實作時應在 **`subprocess.run`** 明確加上 **`encoding="utf-8"`** 與 **`errors="replace"`**（或改讀 **bytes** 再以 **`errors="replace"`** 解碼），並對 **`stdout`／`stderr` 可能為 `None`** 做串接防護。教練／coding agent 檢閱 **`exec`** 時應主動核對這一段，避免只在 macOS／Linux 上測過就以為沒問題。
-- **`exec` 的 `@tool` docstring**：說明用途即可；細則由 **WG-12** 的 **【執行環境】**與**【exec 注意】** 在 system 層統一約束。
+- **`exec` 的 `@tool` docstring**：說明用途即可（單行 shell、回傳 exit code／輸出）；**勿重複**寫 Bash／write_file 規則——改由 **WG-12** 的 **【執行環境】**與**【exec 注意】** 在 system 層統一約束。
 
 ### 驗收條件
 
@@ -823,7 +793,7 @@ TOOLS = [add_numbers]
 
 ### 藍本對應
 
-以下為**可執行骨架**，重點是 **`@tool`**、**`TOOLS`** 與 workspace 安全邊界，不要求與本專案原始碼逐字一致。
+以下為**可執行骨架**，重點是 **`@tool`**、**`TOOLS`** 與 workspace 安全邊界，不要求與任何參考實作逐字一致。
 
 ```python
 import os
@@ -958,6 +928,7 @@ TOOLS: list[Any] = [
 _TOOL_BY_NAME: dict[str, Any] = {t.name: t for t in TOOLS}
 ```
 
+
 ---
 
 ## Challenge WG-15：對話落盤、人設不留痕——對話脈絡寫入 JSONL（先寫檔）
@@ -977,7 +948,7 @@ _TOOL_BY_NAME: dict[str, Any] = {t.name: t for t in TOOLS}
 - **啟動**：`**history`** 固定為**空串列**；`**session_meta`** 初值為 `**None**`。**禁止**在 `**while`** 之前呼叫任何「讀 JSONL 還原 `**history**`」的函式或等價邏輯。
 - **送模（併 WG-13 之完整版）**：每輪在 `**[system_message, *history, HumanMessage(本輪)]`** 上做多段 `**llm_with_tools.invoke(...)**`（**ReAct**），迴圈內依 `**tool_calls`** `**append**` `**AIMessage`／`ToolMessage**`，直到最後一則無 `**tool_calls**` 之 `**AIMessage**`；再將**自本輪 `HumanMessage` 起**之片段整段 `**extend` 進 `history`** 並寫檔。**本檔藍本**採此路線。若課堂另做「僅 `**stream`**、無工具」之簡化版，送模仍為 `**[system_message, *history, human_message]**` 再 `**llm.stream**`，但**不**涵蓋 **JSONL** 之 `**tool`／`tool_calls`** 欄位演練。
 - **寫檔時機**：本輪對話回合（含 **ReAct** 鏈若實作）**寫回 `history` 後**，呼叫寫檔邏輯；**整檔覆寫** `**"w"`** ＋ `**encoding="utf-8"**`。
-- **檔案內容**：**第一行** `**metadata`**（`**_type`／`key`／`created_at`／`updated_at`／`metadata`／`last_consolidated**` 與範例檔對齊）；之後每行一則對話列，**至少**支援 `**role` 為 `user`／`assistant`／`tool`**，順序與 `**history**` 一致。
+- **檔案內容**：**第一行** `**metadata`**（`**_type`／`key`／`created_at`／`updated_at`／`metadata`／`last_consolidated**` 與 `**session.jsonl.example**` 對齊）；之後每行一則對話列，**至少**支援 `**role` 為 `user`／`assistant`／`tool`**，順序與 `**history**` 一致。
   - `**role: "tool"**` 列：須能還原 `**ToolMessage**`（至少 `**content**`、`**tool_call_id**`、`**timestamp**` 等），與 **WG-16** 載回閉環。
   - `**role: "assistant"` 列與 `tool_calls`（本教案採用之「完整版」）**：若該則 `**AIMessage` 帶有非空 `tool_calls`**（**ReAct** 中模型決定呼叫工具的那一則），JSONL **必須**在**同一列**多存一個鍵 `**tool_calls`**，其值為**可被 `json.dumps` 序列化**的陣列，且 `**WG-16` 載回時**能直接餵給建構式 `**AIMessage(content=..., tool_calls=...)`**，使還原後的物件與寫入前**語意一致**（含 `**id`／`name`／`args`** 等欄位，與你執行 **WG-13** 時 `**AIMessage.tool_calls`** 的結構對齊；不同 **LangChain** 版本若欄位名略異，以「能重建同一則 `**invoke`** 上下文」為驗收標準）。**純文字**、無工具呼叫的 `**AIMessage`**：**不**寫 `**tool_calls`** 鍵，或寫 `**"tool_calls": []**`／省略皆可，但**載回規則**須與 **WG-16** 一致。
   - **簡化版（僅純串流、無 ReAct）**：可僅有 `**user`／`assistant`**（無 `**tool_calls**`、無 `**tool**` 列）；一旦併 **WG-13** 並要持久化鏈條，即採上列**完整版**。
@@ -993,9 +964,9 @@ _TOOL_BY_NAME: dict[str, Any] = {t.name: t for t in TOOLS}
 
 ### 藍本對應
 
-主迴圈與 `**memory_react_agent.run_react_turn`** 同構（`**bind_tools`、多段 `invoke`、`ToolMessage**`）；與該檔差異僅在 **WG-15** **不**於啟動讀檔、`**history`** 恆自空開始。
+主迴圈與 **WG-13** 之 `**run_react_turn**` 同構（`**bind_tools`、多段 `invoke`、`ToolMessage**`）；與該檔差異僅在 **WG-15** **不**於啟動讀檔、`**history`** 恆自空開始。
 
-**示範檔（`basic.py`）— 僅含寫入時請對齊以下結構**（完整合併版含讀檔見 **WG-16** 藍本與專案內實際 `basic.py`）
+**示範檔 — 僅含寫入時請對齊以下結構**（完整合併版含讀檔見 **WG-16** 藍本）
 
 ```python
 """課堂示範：WG-15 對話脈絡 JSONL 僅寫檔。
@@ -1091,7 +1062,7 @@ def run_react_turn(
     history: list[BaseMessage],
     user_text: str,
 ) -> tuple[str, list[BaseMessage]]:
-    """本輪自 HumanMessage 起至最終 AIMessage（可含 tool_calls／ToolMessage 鏈）。參考 memory_react_agent.run_react_turn。"""
+    """本輪自 HumanMessage 起至最終 AIMessage（可含 tool_calls／ToolMessage 鏈）。語意對齊 **WG-13** 之 `run_react_turn`。"""
     human_message = HumanMessage(content=user_text)
     messages: list[BaseMessage] = [system_message, *history, human_message]
     idx_turn_start = 1 + len(history)  # 本輪第一則為 human_message
@@ -1166,6 +1137,7 @@ if __name__ == "__main__":
     main()
 ```
 
+
 ---
 
 ## Challenge WG-16：冷啟動撿回昨日脈絡——從 JSONL 載回對話脈絡
@@ -1199,7 +1171,7 @@ if __name__ == "__main__":
 
 與 **WG-15** 藍本同一套 `**run_react_turn`**；另在 `**main()**` 開頭呼叫 `**load_session_jsonl**`，其餘寫檔時機與 **WG-15** 相同。
 
-**示範檔全檔（`basic.py`）— 寫入＋載回合併版（對齊 WG-16）**
+**示範檔全檔 — 寫入＋載回合併版（對齊 WG-16）**
 
 ```python
 """課堂示範：WG-15～WG-16 對話脈絡 JSONL 寫入與載回。
@@ -1414,13 +1386,18 @@ if __name__ == "__main__":
     main()
 ```
 
+
+---
+
+# 第二部分 · 進階挑戰（WG-17～WG-21）
+
 ---
 
 ## Challenge WG-17：視窗太窄先裁舊帳——字元長度模擬 token 預算與整併邊界（`pick_consolidation_boundary`）
 
 ### 情境
 
-**WG-12～15** 已讓模型讀到 **system** 加上自 **JSONL** 載回、並在記憶體中**完整累積**的對話（**WG-13** 起 `**history`** 可含 `**ToolMessage**` 與含 `**tool_calls**` 之 `**AIMessage**`，與磁碟 **JSONL** 一致）；但真實 **API** 有**上下文長度上限**，過長時必須**丟掉最舊**的一部分，只把「塞得進預算」的內容送進模型。本題用**字元數**刻意簡化模擬 **token 成本**（不呼叫 **tiktoken** 等），練習「**先判斷是否超線 → 再裁切 → 再送模（串流或 ReAct 多段 `invoke`）**」的節奏；概念上銜接 `**memory_react_agent.py`** 之 `**request_cost_chars**`／`**turns**` 預算思路。**成本**須把 `**past`** 內每一則 `**BaseMessage**`（含 `**ToolMessage**`）一併納入 `**estimate_message_tokens**`；**裁切邊界**仍以「**下一則使用者訊息**」開頭為準（`**pick_consolidation_boundary`** 對 `**HumanMessage**` 的判定），不因中間夾了 `**ToolMessage**` 而改變「從哪一則 **user** 往後保留」的語意。
+**WG-12～15** 已讓模型讀到 **system** 加上自 **JSONL** 載回、並在記憶體中**完整累積**的對話（**WG-13** 起 `**history`** 可含 `**ToolMessage**` 與含 `**tool_calls**` 之 `**AIMessage**`，與磁碟 **JSONL** 一致）；但真實 **API** 有**上下文長度上限**，過長時必須**丟掉最舊**的一部分，只把「塞得進預算」的內容送進模型。本題用**字元數**刻意簡化模擬 **token 成本**（不呼叫 **tiktoken** 等），練習「**先判斷是否超線 → 再裁切 → 再送模（串流或 ReAct 多段 `invoke`）**」的節奏；概念上銜接 **WG-13～16** 之字元成本累加與送模裁切思路。**成本**須把 `**past`** 內每一則 `**BaseMessage**`（含 `**ToolMessage**`）一併納入 `**estimate_message_tokens**`；**裁切邊界**仍以「**下一則使用者訊息**」開頭為準（`**pick_consolidation_boundary`** 對 `**HumanMessage**` 的判定），不因中間夾了 `**ToolMessage**` 而改變「從哪一則 **user** 往後保留」的語意。
 
 > **與 WG-11～15 的用語對齊**：**WG-11** 以 `**messages`** 累積**已結束回合**（當時僅 **Human／AI**）；**WG-12** 起 `**history`** 與 **JSONL** 對齊，**WG-13** 起可含 **ReAct** 鏈；每輪無裁切時 `**context_messages = [system_message, *history, human_message]`**。**WG-17** 再把「過去段」換成裁切後的 `**past`**（`**past**` 內仍保留 **tool** 訊息之時間順序）。`**history` 的長度**與 `**context_messages` 裡「過去段」的長度**不必相同——這是本題要學生分辨的核心。
 
@@ -1519,6 +1496,7 @@ context_messages = [system_message, *past, human_message]
 # save_session_jsonl(session_path, history, session_meta)
 ```
 
+
 ---
 
 ## Challenge WG-18：送模前先洗對話簿——transcript 修復與工具輸出預算
@@ -1527,7 +1505,7 @@ context_messages = [system_message, *past, human_message]
 
 **WG-17** 教你用 `pick_consolidation_boundary` 做「短期送模視窗」裁切；但真實 agent 還會遇到另一類問題：**對話串本身壞掉或太肥**，導致下一輪模型讀到不合法上下文、或直接被超長 `tool` 輸出塞爆。
 
-`nanobot` 的做法很關鍵：維持一份「完整累積」的 `messages`（之後要寫 JSONL／存檔），但在每一輪呼叫模型前，另組一份 `**messages_for_model`**，允許做**修復／截斷／小型壓縮**，而且註解明確要求「**不要污染**之後要保存的新回合邊界」。
+常見做法是維持一份「完整累積」的 `messages`（之後要寫 JSONL／存檔），但在每一輪呼叫模型前，另組一份 `**messages_for_model`**，允許做**修復／截斷／小型壓縮**，而且註解明確要求「**不要污染**之後要保存的新回合邊界」。
 
 ### 規格（本題用「純 dict transcript」教，避免綁死 LangChain 型別）
 
@@ -1597,6 +1575,7 @@ def build_messages_for_model(
     return out
 ```
 
+
 ---
 
 ## Challenge WG-19：舊對話濃縮成長期備忘——超預算觸發長期記憶整併與每輪讀回組裝
@@ -1605,18 +1584,18 @@ def build_messages_for_model(
 
 **WG-17** 用 `**past`** 裁切，讓「送進主模型的字」不爆線，但舊對話仍完整留在 `**history**` 與 **JSONL**——模型**看不到**被裁掉的那段細節。實務上常把「已離開短期視窗的內容」**壓縮成可重用的長文**，下次開機或下一輪再從檔案**讀回**，塞進 **system**，讓主模型仍握有**高層次脈絡**。
 
-本題規格與 `**long-term-memory-template**` 專案內 `**challenges.md**` 之 **Challenge A**（**必要**）**對齊**；以下為**與本專案（`**basic.py`／JSONL session**）銜接**的節錄。**細節、邊界與驗收句**若與該檔有出入，以 `**long-term-memory-template/challenges.md` Challenge A** 為準。
+本題規格對齊課堂 **Challenge A（長期記憶整併）**；以下為**與本課 JSONL session 銜接**的節錄。細節與驗收以本題「規格／驗收條件」為準。
 
 ### 規格
 
 #### 與 **WG-12～16** 的關係（**不**推翻既有行為）
 
 - **延續**：`**load_session_jsonl`／`save_session_jsonl`**、`**SESSION_JSONL_PATH**`、`**history**` 仍保存**完整**對話（`**user`／`assistant`／`tool`** 與 **WG-15** 一致）與 **metadata**；`**last_consolidated`** 仍寫入 **JSONL** 第一行 **metadata**（與 **WG-17** 語意一致）。
-- **新增儲層**（建議與 `**memory_react_agent.py`** 同層路徑概念）：專案根下 `**memory/**` 目錄內 `**MEMORY.md**`（**覆寫**式長期正文）、`**HISTORY.md`**（**追加**式、一行一筆摘要或失敗列）。
+- **新增儲層**（建議目錄結構如下）：專案根下 `**memory/**` 目錄內 `**MEMORY.md**`（**覆寫**式長期正文）、`**HISTORY.md`**（**追加**式、一行一筆摘要或失敗列）。
 
 #### 整併與預算（與 Challenge A 同一套語意）
 
-- **觸發與成本**：常數 `**TOKEN_BUDGET`** 名稱與語意同 **WG-17**（**字元長度**近似 token）。成本為：**system 字串**（含下節讀回之長期記憶區塊）**+** 短期 `**past`**（或與 `**history[last_consolidated:]**` 語意相同之未整併段）**+** 本輪 `**human_message`**；演算法須與 `**memory_react_agent.request_cost_chars**` **同一語意**——若改寫，請在 `**main.py`**（或作答檔）以**註解**說明對應欄位。
+- **觸發與成本**：常數 `**TOKEN_BUDGET`** 名稱與語意同 **WG-17**（**字元長度**近似 token）。成本為：**system 字串**（含下節讀回之長期記憶區塊）**+** 短期 `**past`**（或與 `**history[last_consolidated:]**` 語意相同之未整併段）**+** 本輪 `**human_message`**；演算法須與 **WG-17** 之 `**request_cost_chars**` **同一語意**——若改寫，請在作答檔以**註解**說明對應欄位。
 - **嚴格大於** `**TOKEN_BUDGET`** 時才啟動「整併流程」並**得**呼叫 **consolidation 專用** LLM（`**invoke`／`ainvoke`** 等實際呼叫，**不可**略過）；**未超線時不得**為整併而呼叫該 LLM。
 - **整併後目標**：整併與 `**last_consolidated`**（游標）更新後、**呼叫主對話 `llm.stream` 之前**，以**同一套**成本公式重算，總成本**必須 ≤ `TOKEN_BUDGET // 2`**（與 template 之 `**target = budget // 2**` 語意一致）。仍高於此值**不得**送主模型，須**繼續**整併／切塊直至達成，或觸發題目已定義之**停止條件**（例如無可用 **user** 邊界——須在程式**註解**說明）。
 - **分輪與邊界（整併切塊）**：以 `**last_consolidated`** 為起點，**每輪整併流程只處理一段 chunk**；切分邊界**僅能落在 user-turn 前**（**不可**拆散同一 **user** 回合後之 **assistant／`ToolMessage`** 鏈，亦**不可**把 **user** 與其後第一則 **assistant** 切半）。邊界選擇須能推進整併並朝「整併後目標」收斂；與 **WG-17** 之 `**pick_consolidation_boundary`** 可並用或等價改寫，須**自洽**。游標後若**無任何** `**HumanMessage`** 則該輪**不整併**，等下一 **user** turn。
@@ -1624,7 +1603,7 @@ def build_messages_for_model(
   1. 讀取目前 `**MEMORY.md`**（不存在視為空）。
   2. 將「待整併之舊 chunk + 現有 **memory** 脈絡」送給 **consolidation 專用** LLM（可與主模型同型號或不同；須為實際 `**invoke`**）。
   3. 期望回傳**可解析的結構化結果**（擇一）：**首選**單一 **JSON** 物件字串，且**僅兩鍵**：`**history_entry`**（字串）、`**memory_update**`（字串，**完整取代** `**MEMORY.md`** 內文之 markdown）；**或** **tool call** 兩參數語意同上。解析失敗計入「重試」；若 **provider** 不支援強制 **tool**，需有 **fallback**（例如改要求純 **JSON**），仍須滿足「兩欄可從回應抽出」。
-  4. 成功時：`**append_history`** 之**語意**與 `**memory_react_agent.append_history`** 一致——`**HISTORY.md**` 一行 `**[YYYY-MM-DD HH:MM] <內文>**`；`**history_entry**` 應為**單行**（內部換行改空白或截斷）。並**覆寫** `**MEMORY.md`** 為 `**memory_update**`。
+  4. 成功時：`**append_history`** 之**語意**與本課 `**append_history**` 藍本一致——`**HISTORY.md**` 一行 `**[YYYY-MM-DD HH:MM] <內文>**`；`**history_entry**` 應為**單行**（內部換行改空白或截斷）。並**覆寫** `**MEMORY.md`** 為 `**memory_update**`。
   5. 更新 `**last_consolidated**` 並 `**save_session_jsonl**`（寫回 **metadata** 與完整 `**history`**）。
 - **失敗策略**：同一 chunk 之 consolidation 最多重試 `**CONSOLIDATION_MAX_RETRIES`** 次（建議 **3**；**0** 表示不重試、直接 **fallback**，須**註解**）。若仍失敗：`**HISTORY.md`** 寫入**一行**，格式 `**[YYYY-MM-DD HH:MM] [CONSOLIDATION-FAILED]`**  後接**單行**（與 Challenge A 一致）；成功列**不得**使用該前綴。失敗後仍須更新 `**last_consolidated`** 使該 chunk 離開短期送入範圍；`**MEMORY.md**` 維持不變或僅註記擇一、**全專案一致**並**註解**。
 
@@ -1655,7 +1634,7 @@ def build_messages_for_model(
 
 ### 藍本對應
 
-**專案根目錄 `basic.py`** 已合併 **WG-12～WG-19**（**WG-13** 工具 **ReAct** 可參考 `**memory_react_agent.py`**）：含 `**memory/MEMORY.md`／`memory/HISTORY.md**`、`**system_content_for_model()**`（`**## Long-term Memory**`）、`**request_cost_chars**`、超 `**TOKEN_BUDGET**` 時 `**consolidation_llm.invoke**` 整併與 `**CONSOLIDATION_MAX_RETRIES**`／`**[CONSOLIDATION-FAILED]**` 失敗列，以及送主模型前壓至 **≤ `TOKEN_BUDGET // 2`** 之迴圈。學生作答仍可以 `**main.py**` 擴寫或參考 `**basic.py**` 分段摘抄；可並行參考 `**memory_react_agent.py**` 之 `**request_cost_chars**` 與 `**run_react_turn**` 語意。
+藍本示意涵蓋 **WG-12～WG-19**：含 `**memory/MEMORY.md`／`memory/HISTORY.md**`、`**system_content_for_model()**`（`**## Long-term Memory**`）、`**request_cost_chars**`、超 `**TOKEN_BUDGET**` 時 consolidation 整併與 `**CONSOLIDATION_MAX_RETRIES**`／`**[CONSOLIDATION-FAILED]**` 失敗列，以及送主模型前壓至 **≤ `TOKEN_BUDGET // 2`** 之迴圈。請在**教師指定作答檔**中依藍本分段實作與驗收。
 
 ```text
 專案根/
@@ -1665,13 +1644,15 @@ def build_messages_for_model(
   session.jsonl    # 仍：metadata + user/assistant/tool；metadata 內 last_consolidated
 ```
 
+---
+
 ## Challenge WG-20：技能卡進工具箱——最小 SkillsLoader 與 system prompt 注入
 
 ### 情境
 
 前面 **WG-12～WG-19** 已涵蓋 session、JSONL、`past` 裁切與長期記憶整併；**WG-13** 與 **WG-14** 已涵蓋 **ReAct** 與 workspace 檔案／shell 工具；本題補上如何把「程序知識」以 **skill** 形式寫成 `SKILL.md`，並在啟動時穩定注入 **system prompt**（摘要＋必要時全文）。
 
-本專案 `nanobot` 的做法很適合拆給學生：**skill 不是 Python tool，也不是模型直接可呼叫的函式**；它是一份 markdown 程序知識。runtime 先掃描 `skills/<name>/SKILL.md`，讀 frontmatter 的 `description` 做摘要；若該 skill 標成 `always`，才把正文去掉 frontmatter 後完整注入 system prompt。其他 skill 只出現在摘要清單中，提醒模型：「需要時請讀這個 `SKILL.md`。」
+下列做法很適合拆給學生理解：**skill 不是 Python tool，也不是模型直接可呼叫的函式**；它是一份 markdown 程序知識。runtime 先掃描 `skills/<name>/SKILL.md`，讀 frontmatter 的 `description` 做摘要；若該 skill 標成 `always`，才把正文去掉 frontmatter 後完整注入 system prompt。其他 skill 只出現在摘要清單中，提醒模型：「需要時請讀這個 `SKILL.md`。」
 
 本題只做「最小可理解架構」：掃目錄、讀檔、取 frontmatter、合併 workspace／builtin、組出 system prompt。**不要求**真的讓 LLM 自動選 skill，也不要求實作 MCP、自訂 **`Tool`／`ToolRegistry` 類別**、sandbox 權限或背景 Dream agent。
 
@@ -1686,7 +1667,7 @@ def build_messages_for_model(
 
 ```text
 專案根/
-  main.py
+  作答檔.py
   skills/
     class-helper/
       SKILL.md
@@ -1722,7 +1703,7 @@ always: false
   - 至少能解析 `name: ...`、`description: ...`、`always: true/false` 三種簡單鍵值。
   - 回傳 metadata 與去掉 frontmatter 後的 markdown body。
   - 不要求支援巢狀 YAML、陣列、多行字串；本題以課堂簡化格式為準。
-- skill 的識別名稱以**資料夾名稱**為準（對齊本專案 loader）；frontmatter 內的 `name` 可要求與資料夾同名，或只當作顯示資訊。若 `description` 不存在，使用資料夾名稱作為 fallback。
+- skill 的識別名稱以**資料夾名稱**為準（對齊本課 **SkillsLoader** 規格）；frontmatter 內的 `name` 可要求與資料夾同名，或只當作顯示資訊。若 `description` 不存在，使用資料夾名稱作為 fallback。
 
 #### `SkillsLoader`
 
@@ -1742,8 +1723,8 @@ always: false
 - 實作 `**build_skills_summary(entries)`**：
   - 對每個非 `always` skill 產生一行摘要，格式可自訂，但須含 **skill 名稱、description、SKILL.md 路徑**。
   - 範例（一行）：`**class-helper`**、description、以及反引號內 `**skills/class-helper/SKILL.md**` 路徑皆須可從該行讀出。
-- 實作 `**build_system_prompt(loader: SkillsLoader) -> str**`（或等價名稱），將 **WG-12** 課堂基底、**WG-19** 長期記憶（若有）、與本題 **Skills** 併成**單一**送模用字串（亦供 **WG-17** 成本估算與 `**SystemMessage.content`** 使用）。**建議大段順序**（與合併示範 `**main.py`** 一致）：
-  1. **課堂基底**：直接呼叫 **WG-12** 之 `**get_identity()`**。
+- 實作 `**build_system_prompt(loader: SkillsLoader) -> str**`（或等價名稱），將 **WG-12** 課堂基底、**WG-19** 長期記憶（若有）、與本題 **Skills** 併成**單一**送模用字串（亦供 **WG-17** 成本估算與 `**SystemMessage.content`** 使用）。**建議大段順序**：
+  1. **課堂基底**：直接呼叫 **WG-12** 之 `**get_identity()`**（含【執行環境】與【exec 注意】）。
   2. **長期記憶**：同 **WG-19** `**memory_block_for_system()`** 語意（有內文才 append）。
   3. **Active Skills**：`always: true` 的 skill，放入 **去掉 frontmatter 後的正文**；區塊標題 `**# Active Skills`**。
   4. **Skills**：`build_skills_summary` 產生之清單；區塊標題 `**# Skills`**；其前附**繁體中文**短引導（須明示以 `**read_file`** 讀取清單中路徑之 `**SKILL.md**`，並一句帶過「若需套件／環境請先依該檔或專案說明安裝」）。
@@ -1759,21 +1740,21 @@ always: false
   - 為 **WG-14** 五支工具手寫簡化版 **`parameters: dict`**，至少支援 `**{"type": "object", "properties": {...}, "required": [...]}**`。
   - `**properties**` 內各欄的 `**type**` 至少支援 **`string`**／**`integer`**／**`number`**／**`boolean`**。
   - **選修**：`**array`**（僅一層元素）、`**object**`（巢狀一層）。
-- `**cast_params(params: dict) -> dict**`：在驗證**之前**呼叫；語意對齊本專案 **`Tool.cast_params`**——例如 `**"42"**` 在 `**type: "integer"**` 時轉成 `**int**`；`**"true"`／`"false"**`（大小寫不敏感）在 `**boolean**` 轉成 `**bool**`；已符合目標型別則保留；無法轉換時可保留原值交給驗證階段報錯（**全專案一致**即可）。
+- `**cast_params(params: dict) -> dict**`：在驗證**之前**呼叫；語意對齊 **`cast_params`** 藍本——例如 `**"42"**` 在 `**type: "integer"**` 時轉成 `**int**`；`**"true"`／`"false"**`（大小寫不敏感）在 `**boolean**` 轉成 `**bool**`；已符合目標型別則保留；無法轉換時可保留原值交給驗證階段報錯（**全班實作一致**即可）。
 - `**validate_params(params: dict) -> list[str]`**：回傳**錯誤訊息串列**（**空**表示通過）；須檢查 `**required`** 缺欄、各欄 `**type**` 與 `**properties**` 鍵是否多出未定義欄位（擇一策略，**註解**說明）。**課堂可自寫檢查器**，不必實作完整 **JSON Schema** 草案。
 - `**prepare_tool_call(name: str, raw: Any) -> tuple[BaseTool | None, dict[str, Any], str | None]`**（函式名可自訂）或**等價流程**：工具名在 **`TOOLS`** 對照表中不存在、或 **`raw`** 無法視為 **dict**（**JSON object**）時，第三個回傳值為**單一錯誤字串**（前兩者為 **`None`／空 dict**）；否則依序 **`cast_params` → `validate_params`**，若有錯誤則組成單一 **`error`**（例如分號串接多條訊息），**不**呼叫 **`BaseTool.invoke`**。
 
-#### 與本專案 `nanobot` 的參考重點
+#### 設計參考重點
 
-- 參考 `**nanobot.agent.skills.SkillsLoader`**：
+- **Skills 掃描與載入**（對應 `SkillsLoader` 概念）：
   - `skills/<name>/SKILL.md` 是被發現的最小單位。
   - workspace skill 會覆蓋同名 builtin skill。
   - `build_skills_summary` 只把摘要放進 prompt，避免一次塞入所有 skill 正文。
-- 參考 `**nanobot.agent.context.ContextBuilder`**：
+- **system prompt 組裝**（對應 `ContextBuilder` 概念）：
   - `always` skill 的正文可直接進 system prompt。
   - 一般 skill 只進摘要，等模型需要時再讀全文。
-- 本題不實作 `requires.bins`／`requires.env`、`disabled_skills`、`metadata.nanobot`、sandbox `extra_allowed_dirs`；這些可列為選修或下一題。
-- 參考 `**nanobot.agent.tools.base.Tool**` 之 **`cast_params`／`validate_params`**，以及 **`ToolRegistry.prepare_call`** 的**流程順序**（先 cast、再驗證、最後才執行工具）：本題改以 **`prepare_tool_call`** + **`BaseTool.invoke`** 對齊同一順序即可，**不**要求自訂 **`Tool`／`ToolRegistry` 類別**，亦不要求 **async** 或與執行緒並發細節逐字相同。
+- 本題不實作進階依賴檢查、`disabled_skills`、額外 metadata、sandbox 擴充目錄等；這些可列為選修或下一題。
+- **工具參數**須依 **`cast_params`／`validate_params`** 流程，並在 **`invoke` 實作前** 完成驗證（對應 `prepare_call` 流程順序）（先 cast、再驗證、最後才執行工具）：本題改以 **`prepare_tool_call`** + **`BaseTool.invoke`** 對齊同一順序即可，**不**要求自訂 **`Tool`／`ToolRegistry` 類別**，亦不要求 **async** 或與執行緒並發細節逐字相同。
 
 ### 驗收條件
 
@@ -1790,7 +1771,7 @@ always: false
 
 ### 藍本對應
 
-以下為**結構示意**（可直接放入 `main.py` 或 `skills_demo.py` 擴寫）；重點是函式邊界與資料流，不要求與本專案原始碼逐字一致。
+以下為**結構示意**（可直接放入教師指定作答檔擴寫）；重點是函式邊界與資料流，不要求與任何參考實作逐字一致。
 
 ```python
 import os
@@ -1904,6 +1885,7 @@ def build_system_prompt(loader: SkillsLoader) -> str:
         parts.append("# Skills\n\n" + intro + summary)
     return "\n\n---\n\n".join(parts)
 ```
+
 
 ---
 
@@ -2085,7 +2067,7 @@ def messages_for_model(
 
 ## 附錄：七份 wiki 內可參考的「學習順序」標題（編輯速查）
 
-以下僅供**編輯教案**時參考用，不必整段給學生；學生端仍以本檔各 Challenge 的情境與驗收為主。
+以下僅供**編輯教案**時參考用，不必整段給學生；學生端以各 Challenge 的情境與驗收為主。
 
 - **1 基礎資料與變數**：資料有型態 → 型態轉換 → 變數與賦值 → 命名與註解 → 作用範圍。
 - **2 運算與輸入輸出**：運算式與運算子 → 型態下的運算效果 → `print()` → `input()` 與轉型 → 字串格式化。
@@ -2095,3 +2077,4 @@ def messages_for_model(
 - **6 檔案與例外**：`open()` 模式 → `with open` → 指標與寫入 → `os`／`os.path` → `try`／`except` → 檔案＋例外整合。
 - **7 類別與測試**：類別作模組化 → 基本結構 → 類別與物件 → 屬性與方法 → `unittest` 最小結構 → `if __name__ == '__main__'`。
 
+---
