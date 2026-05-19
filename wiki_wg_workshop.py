@@ -322,61 +322,24 @@ def save_session_jsonl(
 
 
 # ---------------------------------------------------------------------------
-# WG-10：串流輔助（chunk → 文字、略過開頭多餘換行）
+# WG-10：串流輔助（chunk 累積為 AIMessage，邊收邊印文字）
 # ---------------------------------------------------------------------------
 
 
-def _flatten_ai_chunk_text(content: Any) -> str:
-    if not content:
-        return ""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict) and block.get("type") == "text":
-                parts.append(str(block.get("text", "")))
-        return "".join(parts)
-    return str(content)
-
-
-def _print_ai_stream_content(content: Any) -> None:
-    if not content:
-        return
-    if isinstance(content, str):
-        print(content, end="", flush=True)
-        return
-    if isinstance(content, list):
-        for block in content:
-            if isinstance(block, str):
-                print(block, end="", flush=True)
-            elif isinstance(block, dict):
-                if block.get("type") == "text":
-                    print(block.get("text", ""), end="", flush=True)
-
-
-class _LeadingStripStreamPrinter:
-    __slots__ = ("_pending",)
-
-    def __init__(self) -> None:
-        self._pending = True
-
-    def emit(self, content: Any) -> None:
-        if not content:
-            return
-        if self._pending:
-            flat = _flatten_ai_chunk_text(content)
-            if not flat:
-                return
-            trimmed = flat.lstrip()
-            if not trimmed:
-                return
-            print(trimmed, end="", flush=True)
-            self._pending = False
-            return
-        _print_ai_stream_content(content)
+def _stream_model_response(
+    llm_tools: ChatOpenAI,
+    messages: list[BaseMessage],
+) -> AIMessage:
+    """串流累積為 AIMessage；僅印模型文字，工具執行由呼叫端處理。"""
+    acc: AIMessageChunk | None = None
+    for chunk in llm_tools.stream(messages):
+        acc = chunk if acc is None else acc + chunk
+        content = chunk.content
+        if isinstance(content, str) and content:
+            print(content, end="", flush=True)
+    if acc is None:
+        raise RuntimeError("模型串流未回傳任何 chunk")
+    return message_chunk_to_message(acc)
 
 
 def _run_bound_tool(name: str, args: dict[str, Any]) -> str:
@@ -395,10 +358,8 @@ def run_react_turn(
     system_text: str,
     history: list[BaseMessage],
     user_text: str,
-    *,
-    stream_stdout: bool = True,
 ) -> tuple[str, list[BaseMessage]]:
-    """WG-13 ReAct + WG-10 串流：每段模型回應皆以 stream 累積為 AIMessage。"""
+    """WG-13 ReAct：每輪模型皆 stream；工具同步執行並印結果。"""
     human_message = HumanMessage(content=user_text)
     messages: list[BaseMessage] = [
         SystemMessage(content=system_text),
@@ -408,26 +369,16 @@ def run_react_turn(
     idx_turn_start = 1 + len(history)
 
     while True:
-        acc: AIMessageChunk | None = None
-        stream_out = _LeadingStripStreamPrinter() if stream_stdout else None
-        for chunk in llm_tools.stream(messages):
-            acc = chunk if acc is None else acc + chunk
-            if stream_out is not None:
-                stream_out.emit(getattr(chunk, "content", None))
-        if acc is None:
-            raise RuntimeError("模型串流未回傳任何 chunk")
-        response = message_chunk_to_message(acc)
+        response = _stream_model_response(llm_tools, messages)
+        print()
 
         if response.tool_calls:
-            if stream_stdout:
-                print()
             messages.append(response)
             for tc in response.tool_calls:
                 name = str(tc["name"])
                 raw_args = dict(tc.get("args") or {})
                 result = _run_bound_tool(name, raw_args)
-                if stream_stdout:
-                    print(f"\n[工具 {name}]\n{result}\n", flush=True)
+                print(f"\n[工具 {name}]\n{result}\n", flush=True)
                 messages.append(
                     ToolMessage(
                         content=result,
