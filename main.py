@@ -828,27 +828,38 @@ def build_messages_for_model(
                 name = m.get("name", "tool")
                 m["content"] = f"[{name} result omitted from context]"
 
-    # E: 全對話字元預算
+    # E: 全對話字元預算（整 user 回合刪除，對齊 WG-17 邊界語意）
     def row_cost(msg: dict[str, Any]) -> int:
         return len(str(msg.get("content", "")))
 
     def total_cost() -> int:
         return sum(row_cost(m) for m in out)
 
-    while total_cost() > max_chars and len(out) > 2:
-        removed = False
-        for idx in range(len(out)):
-            if out[idx].get("role") == "system":
+    def user_turn_ranges() -> list[tuple[int, int]]:
+        ranges: list[tuple[int, int]] = []
+        i = 0
+        n = len(out)
+        while i < n and out[i].get("role") == "system":
+            i += 1
+        while i < n:
+            if out[i].get("role") != "user":
+                i += 1
                 continue
-            if idx == len(out) - 1 and out[idx].get("role") == "user":
-                continue
-            out.pop(idx)
-            removed = True
-            break
-        if not removed:
-            break
+            start = i
+            i += 1
+            while i < n and out[i].get("role") != "user":
+                i += 1
+            ranges.append((start, i))
+        return ranges
 
-    if out and out[-1].get("role") != "user":
+    while total_cost() > max_chars:
+        ranges = user_turn_ranges()
+        if len(ranges) <= 1:
+            break
+        start, end = ranges[0]
+        del out[start:end]
+
+    if out and out[-1].get("role") not in {"user", "tool"}:
         out.append({"role": "user", "content": "(conversation continued)"})
     return out
 
