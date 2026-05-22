@@ -33,11 +33,11 @@
 | 基礎 | **WG-09** | 櫃台問答不斷線——互動迴圈與多輪 `invoke` | `while`、`input`、關鍵字結束；每輪 `invoke`（非串流）。 | 3、5 |
 | 基礎 | **WG-10** | 回答像打字機——串流式 `stream` | 架構同 **WG-09**，改 `stream` + `print(..., end="", flush=True)`。 | 3、5 |
 | 基礎 | **WG-11** | 短期記憶只活在當下——RAM 對話脈絡 | `HumanMessage`／`AIMessage` 串列累積；`context_messages` 先組再串流，串流後才 `append`；關閉程式即清空。 | 3、4、5 |
-| 基礎 | **WG-12** | 人設寫進系統層——`SystemMessage` 與可變系統字串 | `**get_identity()`**：課堂規則＋顯示名；**【執行環境】**（`platform.system()` 動態偵測）；**【exec 注意】**（依 OS 選 shell、Python 先 **write_file** 再 **uv run**）；`system`／`history` 分離。 | 4、5 |
-| 基礎 | **WG-13** | 會查表才算真 Agent——工具與 ReAct（單檔） | `@tool`、`bind_tools`、`tool_calls`、`ToolMessage`、多段 `**stream`**（累積成 `AIMessage`）；實作 `**run_react_turn**` 精神；本題不要求 JSONL／預算裁切。 | 3、4、5 |
-| 基礎 | **WG-14** | 讓 Agent 有手有腳——`exec` 與檔案的 **`@tool` 最小組** | 以 LangChain **`@tool`** 暴露五支工具；**exec** 僅單行 shell、**勿 Bash**（`<<`／heredoc）；跑 Python 先 **write_file** 再 **exec `uv run python …`**；檔案操作走專用工具；workspace 路徑限制與 UTF-8 子程序輸出。 | 4、5、6、7 |
-| 基礎 | **WG-15** | 對話落盤、人設不留痕——JSONL 先寫檔 | 在 **WG-12** 送模結構下整檔覆寫 JSONL（首行 `metadata`；**對話列** `**user`／`assistant`／`tool`** 對齊 **WG-13**／**WG-14** 之 **ReAct** 鏈）；啟動**不**讀舊檔；**不**寫 `SystemMessage`。 | 5、6 |
-| 基礎 | **WG-16** | 冷啟動撿回昨日脈絡——JSONL 載回 | 啟動讀檔還原 `**history`**（`**assistant**` 列可還原含 `**tool_calls**` 之 `**AIMessage**`，`**tool**` 列還原 `**ToolMessage**`，對齊 **WG-15** 完整版）；壞行略過；關閉再開可接續。 | 6 |
+| 基礎 | **WG-12** | 人設寫進系統層——`SystemMessage` 與可變系統字串 | `**build_system_prompt()`**：課堂規則＋【本場次顯示名稱】；`**run_react_turn**` 內組 `**SystemMessage**`；`**system_text**`／`**history**` 分離（system 不進 JSONL）。 | 4、5 |
+| 基礎 | **WG-13** | 會查表才算真 Agent——工具與 ReAct（單檔） | `**add_numbers**`、`@tool`、`bind_tools`、`**_stream_model_response**`、`**run_react_turn**`（多段 `**stream**` → `**message_chunk_to_message**`）；`**ToolMessage**`；本題不要求 JSONL。 | 3、4、5 |
+| 基礎 | **WG-14** | 讓 Agent 有手有腳——`exec` 與檔案的 **`@tool` 最小組** | 在 **WG-13** 之 `**TOOLS**` 上追加五支檔案／shell 工具；`**resolve_workspace_path**`；`**exec**` UTF-8 子程序輸出；`**_TOOL_BY_NAME**`／`**_run_bound_tool**`。 | 4、5、6、7 |
+| 基礎 | **WG-15** | 對話落盤、人設不留痕——JSONL 先寫檔 | `**save_session_jsonl**`、`**_serialize_tool_calls**`；預設 `**session_wiki_wg.jsonl**`；啟動**不**讀舊檔；**不**寫 system。 | 5、6 |
+| 基礎 | **WG-16** | 冷啟動撿回昨日脈絡——JSONL 載回 | `**load_session_jsonl**`、`**_row_to_message**`；啟動還原 `**history**`／`**session_meta**`；壞行略過；關閉再開可接續。 | 6 |
 | 進階 | **WG-17** | 視窗太窄先裁舊帳——字元預算與整併邊界 | `estimate_message_tokens`、`pick_consolidation_boundary`、`last_consolidated`；超線裁切 `**past`**；成本含 `**ToolMessage**`（與 **WG-13**／**WG-14** 銜接）。 | 3、4、5 |
 | 進階 | **WG-18** | 送模前先洗對話簿——transcript 修復與工具輸出預算 | 實作 `messages_for_model` 管線（孤兒 tool 清理、缺洞補齊、tool 截斷、舊 tool 摘要、全對話字元預算）。 | 4、5、6 |
 | 進階 | **WG-19** | 舊對話濃縮成長期備忘——整併與每輪讀回組裝 | `memory/MEMORY.md`（精簡備忘，非對話抄寫）、`HISTORY.md`；超線時 **consolidation** `invoke`；`## Long-term Memory` 併入 **system**；送主模型前壓至 **≤ TOKEN_BUDGET//2**。 | 5、6 |
@@ -534,7 +534,7 @@ if __name__ == "__main__":
 
 本題**延續 WG-10 的終端體感**：仍以 `**stream`** 邊生成邊 `**print(..., end="", flush=True)**`；差別是 `**stream` 的參數改為「本輪要給模型看的那份訊息串列」**。課堂建議另用變數名 `**context_messages`** 專指**送進 `llm.stream(...)` 的那一個引數**：在 **WG-11** 裡，先把本輪字句建成 `**human_message = HumanMessage(...)`**，再 `**context_messages = [*messages, human_message]**`（**新開一份串列**：前半是**已結束回合**的累積 `**messages`**，最後一則是本輪使用者；**此時尚未**把 `**human_message`** `**append` 進 `messages**`）。串流結束後，再依序 `**messages.append(human_message)**`、`**messages.append(AIMessage(...))**`，下一輪脈絡才不會缺字。**WG-12** 起會改以 `**history`** 累積對話訊息，並加上 `**system_message**`，送模 `**[system_message, *history, human_message]**`（**WG-15** 起 `**history`** 可含 **WG-13** 之 `**ToolMessage`** 鏈）；到 **WG-17** 再把其中的「過去段」換成裁切後的 `**past`**，即 `**context_messages = [system_message, *past, human_message]**`，與**完整**累積的 `**history`** **脫鉤**，以練習預算裁切。
 
-本題**刻意不做**寫檔／讀檔：關掉程式或當機後，脈絡**立刻消失**——用來參考「RAM 內短期記憶」與「寫進檔、下次載回」的差異。通過後可銜接 **WG-12**（`**SystemMessage`** 與 `**get_identity()**`，送模 `**[system_message, *history, human_message]**`，可先仍**不**寫 JSONL）、再 **WG-13**（工具 **ReAct**）、再 **WG-14**（檔案／`exec` 工具組，選修併專案）、再 **WG-15**（對話**寫入** JSONL）、再 **WG-16**（開機**讀回**接續）。
+本題**刻意不做**寫檔／讀檔：關掉程式或當機後，脈絡**立刻消失**——用來參考「RAM 內短期記憶」與「寫進檔、下次載回」的差異。通過後可銜接 **WG-12**（`**build_system_prompt()`** 與 `**run_react_turn**` 之 system／history 分離，可先仍**不**寫 JSONL）、再 **WG-13**（工具 **ReAct**）、再 **WG-14**（檔案／`exec` 工具組）、再 **WG-15**（對話**寫入** JSONL）、再 **WG-16**（開機**讀回**接續）。
 
 ### 規格
 
@@ -618,75 +618,46 @@ if __name__ == "__main__":
 
 ### 情境
 
-**WG-11** 已能以 `**HumanMessage`／`AIMessage`** 串列維持多輪脈絡，但尚未在送模串列**最前**固定放入「課堂規則、人設、安全邊界」等**系統層**文字。實務上常把這些收斂成 `**get_identity()`** 回傳的一整段字串，再包成 `**SystemMessage**`，且**不**跟著 `**user`／`assistant`** 逐句寫進對話檔（若日後有 **JSONL**，仍只存人機回合）。
+**WG-11** 已能以 `**HumanMessage`／`AIMessage`** 串列維持多輪脈絡，但尚未在送模串列**最前**固定放入「課堂規則、人設」等**系統層**文字。本課合併示範（`**wiki_wg_workshop.py**`）將這段收斂成 `**build_system_prompt() -> str**`；`**run_react_turn**` 收到 `**system_text**` 後在內部組 `**SystemMessage**`，且**不**把 system 寫進 **JSONL**。
 
-本題在**延續 WG-11 的串流節奏**、且**仍可不寫入磁碟**的前提下，練習 `**system_message` 與 `history` 分離**：累積側建議 `**history: list[BaseMessage]`**（僅 **Human／AI**），每輪 `**context_messages = [system_message, *history, human_message]`** 再 `**llm.stream**`。若在同一作答檔合併多題，會再加上 `**load_session_jsonl`／`save_session_jsonl**`（見 **WG-15～16**）；本題獨立作答時**不要求** JSONL，以免與「先釐清 system／history 分工」混淆。
+本題在**延續 WG-11 的串流節奏**、且**仍可不寫入磁碟**的前提下，練習 `**system_text` 與 `history` 分離**：`**history: list[BaseMessage]**` 只累積 **Human／AI／Tool**（併 **WG-13** 後）；每輪送模為 `**[SystemMessage(system_text), *history, human_message]**`（由 `**run_react_turn**` 組裝）。完成 **WG-15～16** 後會再接 `**load_session_jsonl`／`save_session_jsonl**`。
 
-通過後可銜接 **WG-13**：在單檔內練習 `**bind_tools`**、`**ToolMessage**` 與 **ReAct** 式多段 `**stream`**（每次模型呼叫都累積成 `AIMessage`）。再銜接 **WG-14**（檔案／`exec` 工具組，選修併專案）。再銜接 **WG-15**／**WG-16** 將 `**history`**（可含 `**ToolMessage**`）寫入／讀回 **JSONL**（送模仍維持 `**[system_message, *history, human_message]`**），之後再接 **WG-17** 預算裁切、**WG-18**（**transcript**）與 **WG-19**（長期記憶）。
+通過後可銜接 **WG-13**（`**add_numbers**`、ReAct）、**WG-14**（檔案／`exec` 工具）、**WG-15**／**WG-16**（JSONL 寫入／載回），之後再接 **WG-17** 起進階段。
 
 ### 規格
 
 - 延續 **WG-07～11**：`def main()`、`load_dotenv`、無金鑰則印提示後 `**return`**；有金鑰時 `**ChatOpenAI**`、`**while True**`、`input()`、結束指令、空白行 `**continue**`。
-- 在進入 `**while**` 之前：實作 `**def get_identity() -> str**`，並建立 `**system_message = SystemMessage(content=get_identity())**`；`**history: list[BaseMessage] = []**`（啟動時**不**從檔案載入）。
-- `**get_identity()` 回傳字串**須含（1）**一段課堂規則**（`**system_text`**，須含「**繁體中文**」等可驗收關鍵字）；（2）**一段顯示名稱**（`**nick`**，如 `**法鬥超人**`）；（3）**【執行環境】**：以 `**platform.system()`**（與 `**os.name**`）在**程式啟動時**寫入實際 OS（如 Windows／Darwin／Linux），並附一句**與該 OS 相容的 exec 提示**（藍本：`os.name == "nt"` 時註明 PowerShell、勿 `<<`／heredoc；其餘系統可簡化）；（4）**【exec 注意】**：請依【執行環境】選擇 shell 寫法、勿假設 Linux Bash；執行 Python 先 **write_file** 再 **exec** `uv run python 相對路徑`（與 **WG-14** 一致）。**本函式不要求**併入 **WG-13** 工具細則。
-- **合併進階題（WG-20 起）**：`**build_system_prompt(loader)**` 直接呼叫本題 `**get_identity()`** 作為課堂基底，**勿**再包一層 `build_classroom_base_prompt` 等別名函式。WG-13 工具約束可不寫進 `get_identity()`，改由 tool **docstring** 或 ReAct 前組裝補足。
-- 每一輪有效使用者輸入：送進模型處與 **WG-11** 同一精神——**先組本輪 `context_messages`、串流成功後才把本輪 Human／AI 寫回累積**。建議命名：`**human_message = HumanMessage(...)`** → `**context_messages = [system_message, *history, human_message]**` → `**llm.stream(context_messages)**` → `**history.append(human_message)**`、`**history.append(AIMessage(...))**`。**不要**把 `**system`** 與 `**history**` 硬併成「迴圈內一路 `**append**` 的單一串列」。
-- **禁止**：把 `**SystemMessage`** 當成一般對話列 `**append` 進 `history**`；**本題不要求**實作 `**save_session_jsonl`**／讀檔（留給 **WG-15**／**WG-16**）。
-- **不要求**：改 **metadata** 或 **JSONL** 欄位（尚無檔案格式）。
+- 實作 `**def build_system_prompt() -> str**`（**WG-20** 起可擴充為 `**build_system_prompt(loader)`**，本題無參數版即可）。回傳字串須含：（1）**課堂規則** `**system_text**`（須含「**繁體中文**」等可驗收關鍵字）；（2）**【本場次顯示名稱】** 與 `**nick**`（如 `**法鬥超人**`）。格式對齊示範檔：
+  - `"{system_text}\n\n【本場次顯示名稱】{nick}"`
+- 在 `**main()`** 進入 `**while`** 前：`system_text = build_system_prompt()`；`**history: list[BaseMessage] = []**`（啟動時**不**從檔案載入）。**不要**把 `**SystemMessage`** `**append` 進 `history**`。
+- **併 WG-13 起**：每輪呼叫 `**run_react_turn(llm_tools, system_text, history, user_text)**`；system 由該函式內包成 `**SystemMessage(content=system_text)**` 送模。
+- **禁止**：把 system 當一般對話列寫進 `**history**` 或 **JSONL**（留 **WG-15**／**WG-16**）。
+- **不要求**：`**platform.system()`**／【exec 注意】（選修；示範檔 **WG-12** 段落未納入，可於 **WG-14** 工具 docstring 或進階段擴充）。
 
 ### 驗收條件
 
-- 有金鑰時，`**llm.stream(context_messages)`**（`**context_messages = [system_message, *history, human_message]**` 或語意等價）能跑通，且終端串流行為與 **WG-11** 一致（前綴 `**助手：`** 等可保留）。
-- 能指出：程式**哪一段**建立 `**system_message`**、**哪一段**初始化 `**history`**，以及迴圈內**哪一行**把兩者與 `**human_message`** 組進 `**context_messages**`。
-- 能說明：`**get_identity()**` 回傳字串裡，**課堂規則**、**顯示名稱**、**【執行環境】**與**【exec 注意】**各對應哪一段；**【執行環境】**須為啟動時偵測結果，不可手寫固定成錯誤 OS。
-- 修改 `**nick`** 或換一台電腦（不同 OS）後重開程式，模型收到的 system 區塊應反映新字串／新【執行環境】。
-- 能一句話說明：為何 **system** 不放在 `**history`** 裡與人機回合混在同一串列（並參考「**JSONL** 對話列通常存 **user／assistant**；併 **WG-13**／**WG-14** 時另含 `**tool`** 列，見 **WG-15**」）。
-- **邊界**：`**context_messages[0]`** 是哪一種訊息？本輪 `**human_message` 在送模串列中的位置**為何（相對於 `**history`**）？
+- 有金鑰時，送模串列最前為 `**SystemMessage**`，其 `**content**` 與 `**build_system_prompt()`** 一致；終端串流與 **WG-11** 體感相同。
+- 能指出：`**build_system_prompt()`** 在哪裡被呼叫；`**history`** 在哪裡初始化；`**run_react_turn**`（或等價流程）如何把 `**system_text**` 與 `**history**`、本輪 `**HumanMessage`** 組進送模串列。
+- 能說明：`**build_system_prompt()`** 回傳字串中，**課堂規則**與**顯示名稱**各在哪一段。
+- 修改 `**nick**` 後重開程式，模型收到的 system 應反映新顯示名。
+- 能一句話說明：為何 **system** 不放在 `**history`**（**JSONL** 只存 **user／assistant／tool**，見 **WG-15**）。
+- **邊界**：送模串列第一則（若存在）應為 `**SystemMessage**`；本輪 `**HumanMessage`** 在 `**history`** 之後。
 
 ### 藍本對應
 
-以下節錄對齊 `**get_identity**` 與 `**system_message`／`history` 分離**（**本題可不寫 JSONL**）。完成 **WG-15～16** 後，合併進階題時會再接 `**load_session_jsonl`／`save_session_jsonl`**（**WG-15～16**）。
+對齊專案根 `**wiki_wg_workshop.py**` 之 **WG-12** 段落（**本題可不寫 JSONL**）。
 
 ```python
-import os
-import platform
-
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-
-def _runtime_env_note() -> str:
-    sys_name = platform.system()
-    shell_hint = (
-        "exec 在 PowerShell 下執行；勿用 <<、heredoc、bash -c。"
-        if os.name == "nt"
-        else "exec 在系統 shell 下執行；多行腳本仍請 write_file 後 uv run。"
-    )
-    return (
-        f"\n\n【執行環境】{sys_name}（os.name={os.name}）；專案根目錄為目前工作目錄。"
-        f"{shell_hint}"
-    )
-
-def get_identity() -> str:
-    """課堂人設：規則、顯示名、執行環境、exec 注意。"""
+def build_system_prompt() -> str:
     system_text = "你是課堂程式助教，並請使用繁體中文。"
     nick = "法鬥超人"
-    exec_note = (
-        "\n\n【exec 注意】"
-        "\n- 請依上方【執行環境】選擇相容的 shell 指令，勿假設為 Linux Bash。"
-        "\n- 若要執行 Python：先用 write_file 寫入 .py，再 exec「uv run python 相對路徑」。"
-    )
-    return (
-        f"{system_text}\n\n【本場次顯示名稱】{nick}"
-        f"{_runtime_env_note()}{exec_note}"
-    )
+    return f"{system_text}\n\n【本場次顯示名稱】{nick}"
 
-def main() -> None:
-    # load_dotenv()、api_key 檢查、建立 llm
-    system_message = SystemMessage(content=get_identity())
-    history: list[BaseMessage] = []
-
-    # while 內：human_message →
-    # context_messages = [system_message, *history, human_message] → llm.stream →
-    # history.append(human_message); history.append(AIMessage(...))
+# main() 內（併 WG-13 前可先 stream 純文字；併 WG-13 後）：
+system_text = build_system_prompt()
+history: list[BaseMessage] = []
+# run_react_turn(llm_tools, system_text, history, user_text)
+# 內部：messages = [SystemMessage(content=system_text), *history, human_message]
 ```
 
 
@@ -696,58 +667,55 @@ def main() -> None:
 
 ### 情境
 
-**WG-12** 讓模型以 **system + history + 本輪使用者** 往來，回覆皆為**純文字**。實務上常讓模型**決定何時呼叫工具**（計算、查詢、對外 API 等），再依**工具回傳**續寫下一則模型訊息，直到不再需要工具——這種「**Reason + Act**」迴圈常稱 **ReAct**。本題在**單一 `.py` 檔**內練習 `**@tool`**、`**bind_tools**`、`**tool_calls**` 與 `**ToolMessage**`，與本課 **ReAct** 藍本（`**run_react_turn**`）精神對齊；**不要求**本題接 **JSONL**／持久化／字元預算，以免與後續 **WG-17** 混淆。
+**WG-12** 讓模型以 **system + history + 本輪使用者** 往來。本題在**單一 `.py` 檔**內練習 `**add_numbers**`、`**@tool**`、`**bind_tools**`、`**tool_calls**` 與 `**ToolMessage**`，並實作與示範檔一致的 **ReAct** 流程（`**run_react_turn**`、`**_stream_model_response**`）；**不要求** JSONL／持久化／字元預算。
 
-通過後可銜接 **WG-14**（workspace 檔案／`exec` 五支 **`@tool`**，仍可不接 **JSONL**），再 **WG-15**：在 **WG-12** 送模結構下將 `**history`**（含 **ReAct** 鏈之 `**ToolMessage`**）寫入 **JSONL**（仍不寫 **system**），再 **WG-16** 載回；之後 **WG-17** 以 `**pick_consolidation_boundary`** 做短期送模裁切（成本與 `**history**` 一併納入 `**ToolMessage**`；邊界仍以 **Human 回合開頭**為主，與 **WG-13** ReAct 整輪語意可參考）。
+通過後可銜接 **WG-14**（追加檔案／`exec` 工具至 `**TOOLS**`），再 **WG-15**／**WG-16**（JSONL 寫入／載回），之後 **WG-17** 起進階段。
 
 ### 規格
 
-- **延續 WG-12** 之 `**get_identity()`／`SystemMessage`** 概念：送進模型的 **system** 須含**至少一段「何時必須用工具」**的規則（範例：算術須用工具、不可純心算）。**合併藍本（WG-15～）** 可不寫進 `**get_identity()`** 回傳字串，改由 `**@tool**` 的 **docstring**（如 `**add_two**` docstring：「凡涉及兩個整數相加必須呼叫此工具…」）或**選修**常數 `**tool_rule**` 於 `**main**` 組裝 **SystemMessage** 前併入；教師驗收須能指出工具約束出現在送模 **system** 的哪一處。
-- 以 `**langchain_core.tools.tool`** 之 `**@tool**` 定義至少**一支**可呼叫函式（課堂可四則運算擇一或全套）；集中於 `**TOOLS`** 列表，並以 `**llm.bind_tools(TOOLS)**` 取得 `**llm_with_tools**`。
-- **單輪使用者輸入**的處理流程（與 `**run_react_turn`** 同構）：
-  1. 組初始 `**messages = [SystemMessage(...), *past, HumanMessage(user_text)]**`（`**past**` 為本輪之前之訊息；僅 **Human／AI** 亦可，若本題已含工具鏈則可含 **ToolMessage**）。
-  2. 以 `**llm_with_tools.stream(messages)`** 串流取得回應片段，累積後轉回 `**AIMessage**`（供檢查 `tool_calls` 與寫入 `history`）。
-  3. 若 `**response.tool_calls**` 非空：`**messages.append(response)**`，逐筆執行工具、建立 `**ToolMessage(content=..., tool_call_id=...)**` 並 `**append**`，回到步驟 2。
-  3-1. ReAct 會有多次模型呼叫；本教案藍本以多段 `**stream**` 執行，每段串流後都累積成 `**AIMessage**` 再檢查 `tool_calls`。
-  4. 若無 `**tool_calls**`：將最後一則 **AI** 文字作為本輪結論；該文字已由 `stream` 串流輸出，不再一次 `**print(response.content)**`。
-- **邊界**：工具名稱不在參考表時**不得**崩潰；可將錯誤說明字串放入 `**ToolMessage.content`**。
-- **選修**：將本輪新訊息（含 **Tool**）**append** 進 `**history`**，供下一輪 `**past**`；**選修**：`**_normalize_tool_args`** 類相容層（因應部分後端非標準 **args** 形狀）。
+- **延續 WG-12** 之 `**build_system_prompt()`** 與 `**history**` 分離；`**run_react_turn(llm_tools, system_text, history, user_text)**` 在內部建立 `**SystemMessage(content=system_text)**`。
+- 以 `**@tool**` 定義 `**add_numbers(a: float, b: float) -> float**`；**docstring** 須說明算術須呼叫工具、不可心算（對齊示範檔繁中文案）。
+- `**TOOLS = [add_numbers]**`；`**_TOOL_BY_NAME = {t.name: t for t in TOOLS}**`；`**llm.bind_tools(TOOLS)**` 取得 `**llm_tools**`。
+- **串流輔助 `**_stream_model_response**`**：`**llm_tools.stream(messages)**` 累積 chunk（`**acc + chunk**`），邊收邊 `**print**` 文字；以 `**message_chunk_to_message(acc)**` 轉成 `**AIMessage**`（保留 `**tool_calls**`）。
+- **單輪 ReAct（`**run_react_turn**`）**：
+  1. `**messages = [SystemMessage(system_text), *history, HumanMessage(user_text)]**`；記 `**idx_turn_start = 1 + len(history)**`。
+  2. 呼叫 `**_stream_model_response**` → `**response**`；`**messages.append(response)**`。
+  3. 若 `**response.tool_calls**` 非空：逐筆 `**_run_bound_tool(name, args)**`，`**print(f"\n[工具 {name}]\n{result}\n")**`，`**append ToolMessage(..., name=name)**`，回到步驟 2。
+  4. 若無 `**tool_calls**`：`**break**`；`**turn_messages = messages[idx_turn_start:]**`；`**final_text = response.content.strip()**`；回傳 `**(final_text, turn_messages)**`。
+- **邊界**：未知工具名回傳錯誤字串於 `**ToolMessage.content**`，不得崩潰。
+- **選修**：每輪 `**history.extend(turn_messages)**` 供下一輪使用。
 
 ### 驗收條件
 
-- 能跑通：使用者提出須依工具才能完成的任務時，終端可觀察到程式**實際呼叫工具**（非僅模型口頭心算）。
-- 能指出：**哪一行／哪一段** `**bind_tools`**，以及**哪一層迴圈**在處理 `**tool_calls`** 與 `**ToolMessage**`。
-- 能說明：`**AIMessage`（含 tool_calls）** 與 `**ToolMessage`**、最終 `**AIMessage`（純文字）** 在串列中的順序與角色。
-- **邊界**：口頭描述若**只做一次 `invoke`、不處理 tool_calls**，可能錯在哪裡。
+- 使用者提出須用工具完成的算術時，終端可觀察到 `**[工具 add_numbers]**` 與實際工具執行。
+- 能指出：`**bind_tools`**、`**_stream_model_response**`、`**run_react_turn**` 內處理 `**tool_calls**` 的迴圈。
+- 能說明：含 `**tool_calls**` 的 `**AIMessage**`、`**ToolMessage**`、最終純文字 `**AIMessage**` 在串列中的順序。
+- **邊界**：只做一次 `**invoke**`、不處理 `**tool_calls**` 時可能錯在哪裡。
 
 ### 藍本對應
 
-以下為**結構示意**（**非**完整可執行檔）；完整邏輯見下方藍本之 `**run_react_turn**` 與 `**main**` 呼叫方式。
+對齊 `**wiki_wg_workshop.py**` 之 **WG-13** 段落（`**add_numbers**`、`**_stream_model_response**`、`**_run_bound_tool**`、`**run_react_turn**`）。
 
 ```python
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
-
 @tool
 def add_numbers(a: float, b: float) -> float:
-    """Add two numbers and return the sum."""
-    return a + b
+    """兩個數字相加並回傳和。純算術必須呼叫此工具，不可心算後直接回答。"""
+    return float(a) + float(b)
 
 TOOLS = [add_numbers]
-# TOOL_MAP = {t.name: t for t in TOOLS}
-# llm_with_tools = ChatOpenAI(...).bind_tools(TOOLS)
-# messages = [SystemMessage(...), *past, HumanMessage(...)]
-# while True:
-#     r = stream_to_ai_message(llm_with_tools.stream(messages))
-#     if r.tool_calls:
-#         messages.append(r)
-#         for tc in r.tool_calls:
-#             # 執行工具 → ToolMessage(..., tool_call_id=tc["id"])
-#             ...
-#     else:
-#         messages.append(r)
-#         break
+_TOOL_BY_NAME = {t.name: t for t in TOOLS}
+
+def _stream_model_response(llm_tools, messages) -> AIMessage:
+    acc = None
+    for chunk in llm_tools.stream(messages):
+        acc = chunk if acc is None else acc + chunk
+        if isinstance(chunk.content, str) and chunk.content:
+            print(chunk.content, end="", flush=True)
+    return message_chunk_to_message(acc)
+
+def run_react_turn(llm_tools, system_text, history, user_text):
+    # 見 wiki_wg_workshop.py 完整實作
+    ...
 ```
 
 
@@ -757,408 +725,88 @@ TOOLS = [add_numbers]
 
 ### 情境
 
-緊接 **WG-13**，你已用 **`@tool`**、`**bind_tools**`、多段 **`invoke`** 與 **`ToolMessage`** 跑通 **ReAct**。本題在同一條技術線上，把工具組擴充為 workspace 內**讀／寫／列目錄／局部替換**，以及必要時的 **`exec`**（shell）；仍**不要求** **JSONL**、持久化或字元預算——那些從 **WG-15** 起再接上。
+緊接 **WG-13**，你已用 **`@tool`**、`**bind_tools**`、多段 **`stream`** 與 **`ToolMessage`** 跑通 **ReAct**。本題在 `**TOOLS**` 上**追加** workspace 內**讀／寫／列目錄／局部替換**與 **`exec`**（shell）；仍**不要求** JSONL——從 **WG-15** 起再接上。
 
-核心觀念只有一句：**檔案操作走檔案工具，shell 指令才走 `exec`**。也就是說，讀檔不用 `cat`、寫檔不用 `echo >`、改檔不用 `sed -i`；`exec` 留給 `python --version`、`uv run pytest`、執行示範檔這類外部指令。
+核心觀念：**檔案操作走檔案工具，shell 指令才走 `exec`**。讀檔不用 `cat`、寫檔不用 `echo >`、改檔不用 `sed -i`。
 
-**Agent 使用 `exec` 時**：先讀 **WG-12** 送模字串中的 **【執行環境】**（`platform.system()` 動態產生），再下**單行**相容指令；多行 Python 須 **write_file → `uv run python …`**。**【exec 注意】** 與 **【執行環境】** 皆在 `get_identity()`（**WG-20** 起經 `build_system_prompt(loader)` 併入送模字串），讓模型每輪都看得到。
+**Agent 使用 `exec` 時**：多行 Python 須 **write_file → `uv run python …`**；Windows PowerShell 勿用 `<<`／heredoc。工具 **docstring** 說明用途即可；跨平台編碼細節見下方 **`exec`** 規格。
 
-本題**不要求**自訂 `Tool` dataclass 或 `ToolRegistry` 類別；**選讀**：可將 **`TOOLS`** 傳入 **`llm.bind_tools(TOOLS)`** 做端到端驗收；若課堂拆步，亦可先用 **`BaseTool.invoke`**（或等價）做**手動**流程驗收。
+本題**不要求**自訂 `ToolRegistry`；`**_TOOL_BY_NAME**` 對照表供 `**_run_bound_tool**` 使用（與 **WG-13** 相同）。
 
 ### 規格
 
-- 在教師指定作答檔中實作，依賴 **`langchain_core`**（與 **WG-13** 一致）。
-- 以 **`@tool`**（必要時 **`@tool("exec")`** 等）裝飾五個實作函式，對外工具名稱須為 **`read_file`**、**`write_file`**、**`edit_file`**、**`list_dir`**、**`exec`**（與模型 function calling 對齊）。
-- 定義 **`TOOLS: list`**，內含上述五個 **`BaseTool`** 實例，順序自訂但須固定、可重現。
-- 設定 **`WORKSPACE = Path.cwd().resolve()`**；**`resolve_workspace_path`**：僅允許**相對路徑**解析到 workspace 底下（**建議**拒絕絕對路徑）；像 **`../outside.txt`** 須拒絕或回傳清楚錯誤，不可寫到 workspace 外。
-- **`read_file(path, …)`**：讀 UTF-8 文字檔，回傳含行號的內容；找不到檔案或目標不是檔案時回傳錯誤。**語意上為唯讀**（不改磁碟）。
-- **`write_file(path, content)`**：寫入 UTF-8，必要時建立父資料夾；若檔案已存在就是整檔覆寫。
-- **`edit_file(path, old_text, new_text, replace_all=False)`**：用 `old_text` 做局部替換；找不到就報錯；出現多次時，預設要求更多上下文，不直接全改。
-- **`list_dir(path, …)`**：列出資料夾內容；目標不是資料夾時回傳錯誤。**語意上為唯讀**。
-- **`exec`（實作函式名可自訂，例如 `exec_workspace`）**：以 **`subprocess.run`** 在 **`WORKSPACE`** 下執行 shell 指令，回傳 exit code 與輸出摘要；至少阻擋 **`rm -rf`**、**`del /f`**、**`rmdir /s`**、**`format`**、**`shutdown`** 等危險片段。
-- **`exec` 與子程序輸出編碼（跨平台必讀）**：在 **`capture_output=True`** 且 **`text=True`** 時，若未指定 **`encoding`**，**Python 會用系統預設編碼**去解 stdout／stderr。在 **繁中 Windows** 上常為 **cp950**；子程序若輸出 **UTF-8**（許多 CLI、日誌、**`uv`**／**`python`** 的訊息），背景讀取執行緒可能拋出 **`UnicodeDecodeError`**（終端機出現 **`Thread-* (_readerthread)`** 之類 traceback，主流程甚至仍回傳空輸出）。實作時應在 **`subprocess.run`** 明確加上 **`encoding="utf-8"`** 與 **`errors="replace"`**（或改讀 **bytes** 再以 **`errors="replace"`** 解碼），並對 **`stdout`／`stderr` 可能為 `None`** 做串接防護。教練／coding agent 檢閱 **`exec`** 時應主動核對這一段，避免只在 macOS／Linux 上測過就以為沒問題。
-- **`exec` 的 `@tool` docstring**：說明用途即可（單行 shell、回傳 exit code／輸出）；**勿重複**寫 Bash／write_file 規則——改由 **WG-12** 的 **【執行環境】**與**【exec 注意】** 在 system 層統一約束。
+- 在教師指定作答檔（或延續 `**wiki_wg_workshop.py**`）實作，依賴 **`langchain_core`**（與 **WG-13** 一致）。
+- **保留 WG-13 之 `**add_numbers**`**；`**TOOLS**` 順序對齊示範檔：`add_numbers`、`read_file`、`write_file`、`edit_file`、`list_dir`、`exec`（共六支；對外名稱 **`exec`** 由 `@tool("exec")` 裝飾 `exec_workspace` 等實作函式）。
+- 設定 **`WORKSPACE = Path.cwd().resolve()`**；`**resolve_workspace_path**`：拒絕**絕對路徑**；`**../outside.txt**` 等須拒絕。
+- **`read_file(path, offset=1, limit=200)`**：UTF-8、帶行號；非檔案回傳錯誤。
+- **`write_file(path, content)`**：UTF-8 整檔覆寫；必要時 `**mkdir(parents=True)**`。
+- **`edit_file(path, old_text, new_text, replace_all=False)`**：局部替換；`old_text` 多次出現且未 `replace_all` 時報錯。
+- **`list_dir(path, recursive=False, max_entries=200)`**：列出相對 workspace 之路徑；可 `**rglob**`。
+- **`exec`（`exec_workspace`）**：`**subprocess.run**`、`**cwd=WORKSPACE**`、`**shell=True**`、`**encoding="utf-8"`**、`**errors="replace"**`、`**timeout**`（預設 30）；子程序 env 設 `**PYTHONUTF8=1**`；Windows 可設 `**CREATE_NO_WINDOW**`；輸出合併 stdout／stderr，超過約 4000 字元截斷；阻擋 `rm -rf`／`del /f` 等危險片段。
+- **`exec` 與子程序輸出編碼（跨平台必讀）**：繁中 Windows 預設 cp950 解碼可能導致 `**UnicodeDecodeError**`；須明確 `**encoding="utf-8"`** 與 `**errors="replace"**`（對齊示範檔）。
 
 ### 驗收條件
 
-- 由 **`TOOLS`**（或等價對照表）可列出 **`read_file`**、**`write_file`**、**`edit_file`**、**`list_dir`**、**`exec`** 五個工具名稱（例如 **`sorted(t.name for t in TOOLS)`**）。
-- 手動流程能跑通：`write_file` 建立 `sandbox/hello.txt` → `list_dir` 看見它 → `read_file` 讀回含行號內容 → `edit_file` 改其中一段 → 再 `read_file` 確認 → `exec("python --version")` 回傳 exit code 與版本輸出（以 **`BaseTool.invoke({...})`** 或課堂約定之呼叫方式執行即可）。
-- 能說明或示範：自寫 Python 的正確流程為 **write_file** 寫 `.py` → **exec** `uv run python 相對路徑`（勿用 `python << EOF` 等 Bash 寫法）。
-- 能說明：為什麼 `write_file` 是整檔覆寫，而 `edit_file` 是局部替換；兩者各自適合什麼情境？
-- 能說明：為什麼 **`read_file`／`list_dir` 在設計上屬「只讀磁碟」**，而 **`write_file`／`edit_file`／`exec` 會改檔或啟動子程序**，語意上與唯讀分工如何對應（**不必**再以自訂 `read_only` 欄位表達）。
-- 能說明：為什麼不建議用 `exec("cat 檔案")`、`exec("echo ... > 檔案")` 或 `exec("sed -i ...")` 取代專用檔案工具。
-- **邊界**：嘗試讀取或寫入 `../outside.txt` 時，工具應拒絕或回傳清楚錯誤，不應真的改到 workspace 外。
-- **邊界**：`edit_file` 的 `old_text` 若在檔案中出現兩次，預設不得兩處都改；需要求更多上下文或明確 `replace_all=True`。
-- **邊界**：`exec` 收到危險命令片段時應拒絕執行，並說明是安全限制。
-- **邊界（Windows）**：在會觸發大量子程序輸出的指令下，**`exec`** 不得因預設 **cp950** 解碼失敗而在背景執行緒崩潰；應採上節規格之 **UTF-8 + replace**（或等價作法）。
-- **邊界（Windows／Agent）**：在 PowerShell 下使用 `<<` 等 Bash 語法常導致 **exit_code=1**；應改 **write_file + uv run**。
+- `**sorted(t.name for t in TOOLS)**` 含 **`add_numbers`** 與五支檔案／shell 工具名。
+- 手動流程：`write_file` → `list_dir` → `read_file` → `edit_file` → 再 `read_file` → `exec("python --version")`（以 `**BaseTool.invoke**` 或 ReAct 皆可）。
+- 能說明：**write_file** 整檔覆寫 vs **edit_file** 局部替換；為何不用 `exec("cat …")` 讀檔。
+- **邊界**：`../outside.txt` 拒絕；`edit_file` 重複 `old_text` 預設不改兩處；危險 `exec` 拒絕；Windows 大量子程序輸出不崩潰。
 
 ### 藍本對應
 
-以下為**可執行骨架**，重點是 **`@tool`**、**`TOOLS`** 與 workspace 安全邊界，不要求與任何參考實作逐字一致。
+對齊 `**wiki_wg_workshop.py**` 之 **WG-13／WG-14** 段落（`**WORKSPACE**` 至 `**_TOOL_BY_NAME**`）。`**TOOLS**` 須含 `**add_numbers**`：
 
 ```python
-import os
-import subprocess
-from pathlib import Path
-from typing import Any
-
-from langchain_core.tools import tool
-
-WORKSPACE = Path.cwd().resolve()
-
-
-def resolve_workspace_path(path: str) -> Path:
-    raw = Path(path)
-    if raw.is_absolute():
-        raise PermissionError("absolute paths are not allowed")
-    target = (WORKSPACE / path).resolve()
-    try:
-        target.relative_to(WORKSPACE)
-    except ValueError as e:
-        raise PermissionError(f"path is outside workspace: {path}") from e
-    return target
-
-
-@tool("read_file")
-def read_file(path: str, offset: int = 1, limit: int = 200) -> str:
-    """讀取 workspace 內 UTF-8 文字檔，回傳帶行號內容。"""
-    try:
-        target = resolve_workspace_path(path)
-        if not target.is_file():
-            return f"Error: not a file: {path}"
-        lines = target.read_text(encoding="utf-8").splitlines()
-        start = max(offset - 1, 0)
-        end = min(start + limit, len(lines))
-        return "\n".join(f"{i + 1}| {line}" for i, line in enumerate(lines[start:end], start))
-    except Exception as e:
-        return f"Error: {e}"
-
-
-@tool("write_file")
-def write_file(path: str, content: str) -> str:
-    """整檔覆寫寫入 UTF-8 文字檔（必要時建立父資料夾）。"""
-    try:
-        target = resolve_workspace_path(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
-        return f"wrote {len(content)} characters to {path}"
-    except Exception as e:
-        return f"Error: {e}"
-
-
-@tool("edit_file")
-def edit_file(path: str, old_text: str, new_text: str, replace_all: bool = False) -> str:
-    """在既有檔案中把 old_text 換成 new_text（預設僅單次替換）。"""
-    try:
-        target = resolve_workspace_path(path)
-        text = target.read_text(encoding="utf-8")
-        count = text.count(old_text)
-        if count == 0:
-            return "Error: old_text not found"
-        if count > 1 and not replace_all:
-            return "Error: old_text appears multiple times"
-        target.write_text(
-            text.replace(old_text, new_text, -1 if replace_all else 1),
-            encoding="utf-8",
-        )
-        return f"edited {path}"
-    except Exception as e:
-        return f"Error: {e}"
-
-
-@tool("list_dir")
-def list_dir(path: str, recursive: bool = False, max_entries: int = 200) -> str:
-    """列出 workspace 內資料夾內容。"""
-    try:
-        root = resolve_workspace_path(path)
-        if not root.is_dir():
-            return f"Error: not a directory: {path}"
-        iterator = root.rglob("*") if recursive else root.iterdir()
-        entries = [str(item.relative_to(WORKSPACE)) for item in iterator][:max_entries]
-        return "\n".join(entries) if entries else "(empty)"
-    except Exception as e:
-        return f"Error: {e}"
-
-
-@tool("exec")
-def exec_workspace(command: str, timeout: int = 30) -> str:
-    """在專案根目錄（workspace）執行單行 shell 指令，回傳 exit code 與輸出摘要。"""
-    blocked = ("rm -rf", "del /f", "rmdir /s", "format", "shutdown")
-    lowered = command.lower()
-    if any(part in lowered for part in blocked):
-        return "Error: blocked dangerous command (safety limit)"
-
-    child_env = os.environ.copy()
-    child_env.setdefault("PYTHONUTF8", "1")
-    child_env.setdefault("PYTHONIOENCODING", "utf-8")
-
-    run_kw: dict[str, Any] = {
-        "cwd": str(WORKSPACE),
-        "shell": True,
-        "capture_output": True,
-        "text": True,
-        "encoding": "utf-8",
-        "errors": "replace",
-        "timeout": timeout,
-        "env": child_env,
-    }
-    if os.name == "nt":
-        run_kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-
-    try:
-        result = subprocess.run(command, **run_kw)
-        output = ((result.stdout or "") + (result.stderr or "")).strip()
-        cap = 4000
-        if len(output) > cap:
-            output = output[:cap] + "\n\n[truncated]"
-        if not output:
-            output = "(no stdout or stderr; command finished with no captured output)"
-        return f"exit_code={result.returncode}\n{output}"
-    except Exception as e:
-        return f"Error: {e}"
-
-
-TOOLS: list[Any] = [
+TOOLS = [
+    add_numbers,
     read_file,
     write_file,
     edit_file,
     list_dir,
     exec_workspace,
 ]
-
-_TOOL_BY_NAME: dict[str, Any] = {t.name: t for t in TOOLS}
+_TOOL_BY_NAME = {t.name: t for t in TOOLS}
 ```
+
+其餘五支 `@tool` 實作見示範檔 `**wiki_wg_workshop.py**`（約第 45～169 行）。
 
 
 ---
+
 
 ## Challenge WG-15：對話落盤、人設不留痕——對話脈絡寫入 JSONL（先寫檔）
 
 ### 情境
 
-**WG-12** 已讓 `**system_message`** 與 `**history**` 分離，且送模 `**context_messages = [system_message, *history, human_message]**`；關程式後 **RAM** 仍清空。**WG-13** 起（課堂若已併 **WG-14** 之檔案／`exec` 工具組亦同）`**history`** 亦可含 **ReAct** 鏈上的 `**AIMessage`（含 `tool_calls`）** 與 `**ToolMessage`**。實務上把這些**可序列化**的對話訊息**寫進檔案**，留下可查紀錄，並讓下一題能**讀回**接續。
+**WG-12～14** 已以 `**build_system_prompt()`** 與 `**run_react_turn**` 維持 **ReAct** 對話；關程式後 **RAM** 仍清空。本題在**沿用相同主迴圈**的前提下**只做寫檔**：每輪 `**history.extend(turn_messages)**` 後呼叫 `**save_session_jsonl**`，把 `**session_meta**` 與完整 `**history**`（含 `**tool_calls**`／`**ToolMessage**`）**整檔覆寫**到 JSONL（**第一行** `**metadata**`）。
 
-本題在**沿用 WG-12 的送模與累積節奏**的前提下，**只做寫檔**：在本輪使用者回合與助手／工具鏈**已依序 `append` 進 `history`**（串流或 `**invoke**` 流程結束後）呼叫寫檔，把 `**session_meta**` 與 `**history` 內可持久化的訊息** **整檔覆寫**到 JSONL（**第一行**為 `**metadata`**）。語法對齊 **第 6 單元（檔案與例外處理）**：`**with open(..., "w", encoding="utf-8")`**、`**json.dumps**`、`**os.getenv**` 指定路徑。檔案長相可參考 `**session.jsonl.example**`，並**擴充** `**role: "tool"`** 等列以還原 `**ToolMessage**`（至少 `**content**`、`**tool_call_id**`）。若要做到「關閉再開仍保留完整 **ReAct** 語意」，`**assistant` 列**必須能還原**帶 `tool_calls` 的 `AIMessage`**（見下方 **規格** 之**完整版**定義）。
+規格與函式簽名以專案根 **`wiki_wg_workshop.py`**（**WG-15～16** 段落）為準。
 
-**刻意不做**：程式一啟動就**讀舊檔**還原 `**history`**（一律從**空串列**開始，體感仍像 **WG-12** 首次執行——再開程式不會自動接續）。讀檔接續留給 **WG-16**。
+**刻意不做**：啟動時讀舊檔（留 **WG-16**）。**WG-15 獨立驗收**時 `**main()`** 仍從空 `**history**` 開始；合併示範檔已含 **WG-16** 載入邏輯，教師可指定「本題只驗寫檔、暫不驗載回」。
 
 ### 規格
 
-- 延續 **WG-07～12**：`def main()`、`load_dotenv`、無金鑰則印提示後 `**return`**；有金鑰時 `**ChatOpenAI**`、`**while True**`、`input()`、結束指令、空白行 `**continue**`；`**get_identity()**`、`**system_message**` 與 `**history**` 分離（同 **WG-12**）。`**get_identity()`** 示範僅回傳課堂規則＋【本場次顯示名稱】（見下方藍本）；併 **WG-13** 之工具約束**不強制**寫在此函式內。
-- **存檔路徑**：`**os.getenv("SESSION_JSONL_PATH", "session.jsonl")`**；預設 `**session.jsonl**`（`**session.jsonl.example**` 僅供參考，勿當預設寫入目標）。
-- **啟動**：`**history`** 固定為**空串列**；`**session_meta`** 初值為 `**None**`。**禁止**在 `**while`** 之前呼叫任何「讀 JSONL 還原 `**history**`」的函式或等價邏輯。
-- **送模（併 WG-13 之完整版）**：每輪在 `**[system_message, *history, HumanMessage(本輪)]`** 上做多段 `**llm_with_tools.stream(...)**`（**ReAct**）以判斷與執行工具；每段串流後累積成 `**AIMessage**`，迴圈內依 `**tool_calls`** `**append**` `**AIMessage`／`ToolMessage**`，最終無 `tool_calls` 的 assistant 文字已在串流中顯示，並以同一則 `AIMessage` 寫回 `history`。再將**自本輪 `HumanMessage` 起**之片段整段 `**extend` 進 `history`** 並寫檔。若課堂另做「僅 `**stream`**、無工具」之簡化版，送模仍為 `**[system_message, *history, human_message]**` 再 `**llm.stream**`，但**不**涵蓋 **JSONL** 之 `**tool`／`tool_calls`** 欄位演練。
-- **寫檔時機**：本輪對話回合（含 **ReAct** 鏈若實作）**寫回 `history` 後**，呼叫寫檔邏輯；**整檔覆寫** `**"w"`** ＋ `**encoding="utf-8"**`。
-- **檔案內容**：**第一行** `**metadata`**（`**_type`／`key`／`created_at`／`updated_at`／`metadata`／`last_consolidated**` 與 `**session.jsonl.example**` 對齊）；之後每行一則對話列，**至少**支援 `**role` 為 `user`／`assistant`／`tool`**，順序與 `**history**` 一致。
-  - `**role: "tool"**` 列：須能還原 `**ToolMessage**`（至少 `**content**`、`**tool_call_id**`、`**timestamp**` 等），與 **WG-16** 載回閉環。
-  - `**role: "assistant"` 列與 `tool_calls`（本教案採用之「完整版」）**：若該則 `**AIMessage` 帶有非空 `tool_calls`**（**ReAct** 中模型決定呼叫工具的那一則），JSONL **必須**在**同一列**多存一個鍵 `**tool_calls`**，其值為**可被 `json.dumps` 序列化**的陣列，且 `**WG-16` 載回時**能直接餵給建構式 `**AIMessage(content=..., tool_calls=...)`**，使還原後的物件與寫入前**語意一致**（含 `**id`／`name`／`args`** 等欄位，與你執行 **WG-13** 時 `**AIMessage.tool_calls`** 的結構對齊；不同 **LangChain** 版本若欄位名略異，以「能重建同一則 `**invoke`** 上下文」為驗收標準）。**純文字**、無工具呼叫的 `**AIMessage`**：**不**寫 `**tool_calls`** 鍵，或寫 `**"tool_calls": []**`／省略皆可，但**載回規則**須與 **WG-16** 一致。
-  - **簡化版（僅純串流、無 ReAct）**：可僅有 `**user`／`assistant`**（無 `**tool_calls**`、無 `**tool**` 列）；一旦併 **WG-13** 並要持久化鏈條，即採上列**完整版**。
-- **禁止**：把 `**SystemMessage`** 寫入檔案；從磁碟**載入**歷史到 `**history`**（留給 **WG-16**）。
-- **不要求**：讀檔時 `**try`／`except json.JSONDecodeError`**（本題無讀檔）；合併／摘要歷史。
+- 延續 **WG-07～14**：`load_dotenv`、金鑰早退、`**build_system_prompt()`**、`**run_react_turn(llm_tools, system_text, history, user_text)**`、`**llm.bind_tools(TOOLS)**`（`**TOOLS**` 含 **WG-13** `**add_numbers**` 與 **WG-14** 五支工具，對齊示範檔）。
+- **存檔路徑**：`**os.getenv("SESSION_JSONL_PATH", "session_wiki_wg.jsonl")**`（示範檔預設；可覆寫）。
+- **啟動（WG-15 獨立）**：`**history = []**`、`**session_meta = None**`；**禁止**呼叫 `**load_session_jsonl**`。
+- **寫檔時機**：每輪 `**run_react_turn**` 結束、`**history.extend(turn_messages)**` 之後。
+- **輔助函式**（對齊示範檔）：
+  - `**_default_metadata(created_at=None)**`：第一行 metadata；含 `**last_consolidated: 0**`（供 **WG-17** 預留）。
+  - `**_serialize_tool_calls(tc)**`：將 `**tool_calls**` 正規化為 `**{name, args, id}**` 陣列再寫入 JSONL。
+  - `**_message_to_jsonl_line(m)**`：`**HumanMessage`／`AIMessage`（含 tool_calls）／`ToolMessage**` → 一行 JSON；`**ToolMessage**` 可選寫 `**name**`。
+  - `**save_session_jsonl(path, messages, existing_meta, last_consolidated) -> dict**`：整檔覆寫；更新 `**updated_at**`；保留 `**created_at**`（若 `**existing_meta**` 有）。
+- **JSONL 列**：`**user`／`assistant`／`tool**`；`**assistant**` 含非空 `**tool_calls**` 時同列寫入 `**tool_calls**`（經 `**_serialize_tool_calls**`）；每列建議 `**timestamp**`。
+- **禁止**：寫入 `**SystemMessage**`／system 字串。
 
 ### 驗收條件
 
-- 啟動後行為與 **WG-12**（無檔時）相同可對話（**不**因磁碟上已有舊檔而自動載入）。
-- 至少完成一輪後，指定路徑出現 **JSONL**，**第一行**為 `**metadata`**，其後可見 `**user`／`assistant**` 列；若實作 **ReAct** 持久化，可再看到 `**tool`** 列，且**含 `tool_calls` 的 `assistant` 列**須帶 `**tool_calls`** 欄位（與上節**完整版**一致）。
-- 能說明：**什麼時機**把 `**history`** 寫入檔案？為什麼在 **本輪助手也寫回 `history` 之後**，而不是 `**human_message` 一建好就寫**？
-- **邊界**：若該路徑**已存在**一份舊 JSONL，新開程式後**第一輪**對話結束並存檔，你預期檔案內容與「若程式會讀舊檔」有什麼關鍵差別？（能說出「整檔覆寫、不先載入」即可。）
+- 至少一輪對話後，指定路徑出現 JSONL；第一行 `**metadata**`；其後有 `**user`／`assistant**`；若走 ReAct 則另有 `**tool**` 與含 `**tool_calls**` 的 `**assistant**` 列。
+- 能說明：為何在 `**extend(turn_messages)**` **之後**才 `**save_session_jsonl**`。
+- **邊界**：舊 JSONL 存在時，**WG-15 獨立版**重開仍從空 `**history**` 開始，第一輪存檔為**整檔覆寫**（不 merge 舊列）。
 
 ### 藍本對應
 
-主迴圈與 **WG-13** 之 `**run_react_turn**` 同構（`**bind_tools`、多段 `stream` 累積 `AIMessage`、`ToolMessage**`）；與該檔差異僅在 **WG-15** **不**於啟動讀檔、`**history`** 恆自空開始。
-
-**示範檔 — 僅含寫入時請對齊以下結構**（完整合併版含讀檔見 **WG-16** 藍本）
-
-```python
-"""課堂示範：WG-15 對話脈絡 JSONL 僅寫檔。
-
-本藍本主線採 **WG-13** 風格：**`bind_tools` + 多段 `stream` + `ToolMessage`** 處理工具鏈，
-每段模型回應都由串流 chunk 累積成 **AIMessage**；每輪結束後把 **`history`** 內 **Human／含 tool_calls 之 AIMessage／ToolMessage／最終 AIMessage** 整檔寫入 JSONL。
-"""
-
-import json
-import os
-from datetime import datetime
-from typing import Any
-
-from dotenv import load_dotenv
-from langchain_core.messages import (
-    AIMessage,
-    AIMessageChunk,
-    BaseMessage,
-    HumanMessage,
-    SystemMessage,
-    ToolMessage,
-    message_chunk_to_message,
-)
-from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
-
-@tool
-def add_two(a: int, b: int) -> int:
-    """兩個整數相加並回傳和。凡涉及兩個整數相加必須呼叫此工具，不要只在文字裡心算。"""
-    return a + b
-
-TOOLS = [add_two]
-_TOOL_BY_NAME = {t.name: t for t in TOOLS}
-
-def _default_metadata(created_at: str | None = None) -> dict[str, Any]:
-    """建立第一行 metadata 物件（與 session.jsonl.example 欄位對齊）。"""
-    now = datetime.now().isoformat()
-    return {
-        "_type": "metadata",
-        "key": "session",
-        "created_at": created_at or now,
-        "updated_at": now,
-        "metadata": {},
-        "last_consolidated": 0,
-    }
-
-def save_session_jsonl(
-    path: str,
-    messages: list[BaseMessage],
-    existing_meta: dict[str, Any] | None,
-) -> dict[str, Any]:
-    """整檔覆寫：第一行 metadata（更新 updated_at），其餘每行一則 user／assistant／tool。"""
-    now = datetime.now().isoformat()
-    if existing_meta is None:
-        meta = _default_metadata(created_at=now)
-    else:
-        meta = dict(existing_meta)
-        meta["_type"] = "metadata"
-        meta["key"] = meta.get("key", "session")
-        if "created_at" not in meta:
-            meta["created_at"] = now
-        meta["updated_at"] = now
-
-    lines: list[str] = [json.dumps(meta, ensure_ascii=False)]
-
-    for m in messages:
-        ts = datetime.now().isoformat()
-        if isinstance(m, HumanMessage):
-            row = {"role": "user", "content": m.content, "timestamp": ts}
-        elif isinstance(m, AIMessage):
-            row = {"role": "assistant", "content": m.content, "timestamp": ts}
-            # 完整 ReAct 鏈：有 tool_calls 時必須寫入同列，WG-16 才能還原 AIMessage(..., tool_calls=...)
-            tc = getattr(m, "tool_calls", None)
-            if tc:
-                row["tool_calls"] = tc
-        elif isinstance(m, ToolMessage):
-            row = {
-                "role": "tool",
-                "content": m.content,
-                "tool_call_id": m.tool_call_id,
-                "timestamp": ts,
-            }
-        else:
-            continue
-        lines.append(json.dumps(row, ensure_ascii=False))
-
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
-        if lines:
-            f.write("\n")
-
-    return meta
-
-def get_identity() -> str:
-    # 同 WG-12：含 _runtime_env_note() 與【exec 注意】（見該題藍本）
-    ...
-
-def run_react_turn(
-    llm_tools: ChatOpenAI,
-    system_message: SystemMessage,
-    history: list[BaseMessage],
-    user_text: str,
-    *,
-    stream_stdout: bool = True,
-) -> tuple[str, list[BaseMessage]]:
-    """本輪自 HumanMessage 起至最終 AIMessage（可含 tool_calls／ToolMessage 鏈）。模型呼叫以 stream 累積成 AIMessage。"""
-    human_message = HumanMessage(content=user_text)
-    messages: list[BaseMessage] = [system_message, *history, human_message]
-    idx_turn_start = 1 + len(history)  # 本輪第一則為 human_message
-
-    while True:
-        acc: AIMessageChunk | None = None
-        for chunk in llm_tools.stream(messages):
-            acc = chunk if acc is None else acc + chunk
-            if stream_stdout and chunk.content:
-                print(chunk.content, end="", flush=True)
-        if acc is None:
-            raise RuntimeError("模型串流未回傳任何 chunk")
-        response = message_chunk_to_message(acc)
-
-        if response.tool_calls:
-            if stream_stdout:
-                print()
-            messages.append(response)
-            for tc in response.tool_calls:
-                name = tc["name"]
-                raw_args = dict(tc.get("args") or {})
-                tool_obj = _TOOL_BY_NAME.get(name)
-                if tool_obj is None:
-                    result: str | int = f"未知工具: {name}"
-                else:
-                    try:
-                        result = tool_obj.invoke(raw_args)
-                    except Exception as e:
-                        result = str(e)  # 課堂示範：錯誤字串化寫入 ToolMessage
-                messages.append(
-                    ToolMessage(content=str(result), tool_call_id=tc["id"])
-                )
-        else:
-            messages.append(response)
-            break
-
-    turn_messages = messages[idx_turn_start:]
-    final_ai = next(
-        (m for m in reversed(turn_messages) if isinstance(m, AIMessage)),
-        None,
-    )
-    final_text = ((final_ai.content if final_ai else None) or "").strip()
-    return final_text, turn_messages
-
-def main() -> None:
-    load_dotenv()
-    api_key = os.getenv("OPENAI_API_KEY")
-    session_path = os.getenv("SESSION_JSONL_PATH", "session.jsonl")
-
-    system_message = SystemMessage(content=get_identity())
-    history: list[BaseMessage] = []
-    session_meta: dict[str, Any] | None = None
-
-    if api_key:
-        print(
-            "已讀到 API 金鑰設定（內容不顯示）；進入對話（ReAct + JSONL 寫檔；每次重開仍從空脈絡開始；輸入 quit / exit / q 結束）。"
-        )
-    else:
-        print("尚未讀到 OPENAI_API_KEY；請檢查 .env 或系統環境變數。")
-        return
-
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
-    llm_tools = llm.bind_tools(TOOLS)
-
-    while True:
-        user_text = input("你：").strip()
-        if user_text.lower() in ("quit", "exit", "q"):
-            print("再見！")
-            break
-        if not user_text:
-            continue
-
-        print("助手：", end="", flush=True)
-        reply_text, turn_messages = run_react_turn(
-            llm_tools, system_message, history, user_text
-        )
-        print()
-
-        history.extend(turn_messages)
-        session_meta = save_session_jsonl(session_path, history, session_meta)
-
-if __name__ == "__main__":
-    main()
-```
+對齊 **`wiki_wg_workshop.py`**：`_default_metadata`、`_serialize_tool_calls`、`_message_to_jsonl_line`、`**save_session_jsonl**`（約第 190～321 行）；`**main()`** 寫檔段落（約第 441～446 行）。**WG-15 獨立**時省略啟動的 `**load_session_jsonl**` 呼叫。
 
 
 ---
@@ -1167,273 +815,44 @@ if __name__ == "__main__":
 
 ### 情境
 
-**WG-15** 已會把每輪完整 `**history`**（含 **WG-13** **ReAct** 鏈上的 `**AIMessage`（可含 `tool_calls`）／`ToolMessage`**，與一般 `**HumanMessage`／`AIMessage**`）寫成 JSONL，但每次開程式仍從空脈絡開始。本題在**不改寫檔格式與寫檔時機**的前提下，加上**啟動時讀檔**：若路徑上已有檔案，就把 `**metadata`** 與對話列還原成 `**langchain_core.messages**` 物件串列（`**user`／`assistant`（含 `tool_calls` 還原）／`tool**` 與 **WG-15**「完整版」對齊），讓**關閉程式再開**仍能延續同一場對話。
+**WG-15** 已會寫入完整 **ReAct** 鏈。本題加上**啟動讀檔**：`**load_session_jsonl**` 還原 `**history**` 與 `**session_meta**`，使**關閉再開**可接續。讀取時壞行略過（`**json.JSONDecodeError**`）。
 
-讀取時對齊 **第 6 單元（檔案與例外處理）**：`**with open(..., encoding="utf-8")`** 逐行讀、`**json.loads**` 包在 `**try`／`except json.JSONDecodeError**` 內，壞行略過不中斷。通過後可銜接 **WG-17**：在 **WG-12** 的 `**system_message`** 與 **WG-15** 寫檔格式之上，用 `**pick_consolidation_boundary`** 做短期送模裁切（見該題）。
+合併示範檔 **`wiki_wg_workshop.py`** 已實作 **WG-12～16** 完整閉環。
 
 ### 規格
 
-- 延續 **WG-15** 之 JSONL 格式、`**SESSION_JSONL_PATH`**、每輪結束後**整檔覆寫**、**不**寫 `**SystemMessage`**；`**tool**` 列須能還原 `**ToolMessage**`（至少 `**content**`、`**tool_call_id**`，與 **WG-15** 一致）。
-- `**assistant` 列與 `tool_calls`（與 WG-15「完整版」同一套）**：讀到 `**role: "assistant"`** 時，若該列含 `**tool_calls**` 鍵且為非空陣列，必須還原為 `**AIMessage(content=..., tool_calls=...)**`（參數值與檔案內 `**tool_calls**` 一致），以保留 **ReAct** 鏈上「模型發出工具呼叫」那一則的語意；若無 `**tool_calls`** 或為空陣列，則 `**AIMessage(content=...)**` 即可。
-- **啟動**：若路徑**無檔**，`**history`** 為空、`**session_meta**` 為 `**None**`（與 **WG-15** 相同）。若**有檔**，以 `**"r"`** 模式逐行讀取：
-  - 空行略過；`**json.loads**` 使用 `**try`／`except json.JSONDecodeError**`，壞行略過。
-  - `**"_type": "metadata"**` 列：保留為 `**session_meta**`，供之後寫回時沿用 `**created_at**`、更新 `**updated_at**`。
-  - `**role**` 為 `**"user"**`：轉成 `**HumanMessage**`；為 `**"assistant"**`：依上節還原 `**AIMessage**`（**含／不含 `tool_calls`**）；為 `**"tool"**`：轉成 `**ToolMessage(content=..., tool_call_id=...)**`（欄位與 **WG-15** 寫入一致）；未知 `**role`** 略過（或依教師約定記錄警告）。
-- `**main()**` 開頭改為呼叫載入函式（或等價邏輯）取得 `**history**` 與 `**session_meta**`；並與 **WG-12** 相同在進入 `**while`** 前建立 `**system_message = SystemMessage(content=get_identity())**`。其餘每輪與 **WG-15** 閉環：併 **WG-13** 時，以 `**bind_tools` + 多段 `stream`** 產生本輪 `**turn_messages**`（自 `**HumanMessage**` 起，可含 `**AIMessage.tool_calls`／`ToolMessage`／最終 `AIMessage**`），`**history.extend(turn_messages)**` 後 `**save_session_jsonl**`；**本檔藍本**與 **WG-15** 藍本同採 `**run_react_turn`** 寫法（**非**單輪純文字直印）。
-- **不要求**：變更 **WG-15** 訂好的 JSON 欄位名稱或檔案編碼。
+- 延續 **WG-15** JSONL 格式與 `**save_session_jsonl**` 時機；**不**改欄位名。
+- **新增 `**load_session_jsonl(path) -> tuple[list[BaseMessage], dict | None]**`**（對齊示範檔）：
+  - 無檔 → `**([], None)**`。
+  - 有檔 → 逐行 `**json.loads**`；`**_type == "metadata"**` → `**session_meta**`；其餘經 `**_row_to_message**` 還原（`**_serialize_tool_calls**` 還原 `**AIMessage.tool_calls**`；`**ToolMessage**` 含 `**tool_call_id**`、可選 `**name**`）。
+- **`main()` 啟動**：`**history, session_meta = load_session_jsonl(session_path)**`；`**system_text = build_system_prompt()`**；有載入則印出訊息則數（示範檔行為）。
+- 每輪：`run_react_turn` → `**history.extend(turn_messages)**` → `**save_session_jsonl(..., last_consolidated=int(session_meta.get("last_consolidated", 0)))**`。
 
 ### 驗收條件
 
-- **關閉程式再開**（仍具金鑰）：先前對話中給過的關鍵資訊可被模型承接（自訂台詞即可），且與磁碟上 JSONL 內容一致。
-- 能指出程式裡**哪一段**在啟動時讀檔，以及**哪一段**用 `**try`／`except json.JSONDecodeError`** 處理壞行。
-- 能說明：`**session_meta**`（或你專案中等價變數）在「第一次寫檔」與「讀檔後再寫檔」時，`**created_at**` 與 `**updated_at**` 各自扮演什麼角色？
-- **邊界**：若手動刪掉 JSONL **第一行 `metadata`** 只留下對話列，下次啟動載入後再完成一輪並存檔，你預期**第一行**會如何變化？（能描述「是否補上新的 metadata」即可。）
-- （併 **WG-13** 時）**關閉再開**後，磁碟上 `**assistant` 列**若含 `**tool_calls`**，載入後 `**history**` 中對應 `**AIMessage**` 須仍帶 `**tool_calls**`（可 `**print**` 或除錯器檢查），且後續 `**ToolMessage**` 仍接在正確的 `**tool_call_id**` 之後。
+- **關閉再開**：先前對話關鍵資訊可被模型承接；與 JSONL 一致。
+- 能指出 `**load_session_jsonl**` 位置與 bad-line 處理。
+- 能說明 `**created_at**`／`**updated_at**` 在首次寫檔 vs 讀檔後再寫檔的差異。
+- **ReAct**：載入後 `**AIMessage.tool_calls**` 與後續 `**ToolMessage.tool_call_id**` 仍對齊。
 
 ### 藍本對應
 
-與 **WG-15** 藍本同一套 `**run_react_turn`**；另在 `**main()**` 開頭呼叫 `**load_session_jsonl**`，其餘寫檔時機與 **WG-15** 相同。
+完整可執行示範：**`wiki_wg_workshop.py`**（執行：`uv run wiki_wg_workshop.py`）。
 
-**示範檔全檔 — 寫入＋載回合併版（對齊 WG-16）**
+關鍵入口：
 
 ```python
-"""課堂示範：WG-15～WG-16 對話脈絡 JSONL 寫入與載回。
-
-啟動時 **`load_session_jsonl`** 還原含 **`tool_calls`** 之 **`AIMessage`** 與 **`ToolMessage`**；
-每輪仍以 **ReAct + `invoke`** 延伸 **`history`**，再 **`save_session_jsonl`** 整檔覆寫。
-"""
-
-import json
-import os
-from datetime import datetime
-from typing import Any
-
-from dotenv import load_dotenv
-from langchain_core.messages import (
-    AIMessage,
-    AIMessageChunk,
-    BaseMessage,
-    HumanMessage,
-    SystemMessage,
-    ToolMessage,
-    message_chunk_to_message,
-)
-from langchain_core.tools import tool
-from langchain_openai import ChatOpenAI
-
-@tool
-def add_two(a: int, b: int) -> int:
-    """兩個整數相加並回傳和。凡涉及兩個整數相加必須呼叫此工具，不要只在文字裡心算。"""
-    return a + b
-
-TOOLS = [add_two]
-_TOOL_BY_NAME = {t.name: t for t in TOOLS}
-
-def _default_metadata(created_at: str | None = None) -> dict[str, Any]:
-    """建立第一行 metadata 物件（與 session.jsonl.example 欄位對齊）。"""
-    now = datetime.now().isoformat()
-    return {
-        "_type": "metadata",
-        "key": "session",
-        "created_at": created_at or now,
-        "updated_at": now,
-        "metadata": {},
-        "last_consolidated": 0,
-    }
-
-def load_session_jsonl(path: str) -> tuple[list[BaseMessage], dict[str, Any] | None]:
-    """從 JSONL 載入對話訊息串列（assistant 含 tool_calls 時還原完整 AIMessage）與 metadata；檔不存在則回傳空串列與 None。"""
-    if not os.path.exists(path):
-        return [], None
-
-    messages: list[BaseMessage] = []
-    meta: dict[str, Any] | None = None
-
-    with open(path, encoding="utf-8") as f:
-        for raw in f:
-            line = raw.strip()
-            if not line:
-                continue
-            try:
-                obj: Any = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
-            if isinstance(obj, dict) and obj.get("_type") == "metadata":
-                meta = obj
-                continue
-
-            if not isinstance(obj, dict):
-                continue
-
-            role = obj.get("role")
-            if role == "user":
-                messages.append(HumanMessage(content=str(obj.get("content", ""))))
-            elif role == "assistant":
-                content = str(obj.get("content", ""))
-                tc = obj.get("tool_calls")
-                if tc:
-                    messages.append(AIMessage(content=content, tool_calls=tc))
-                else:
-                    messages.append(AIMessage(content=content))
-            elif role == "tool":
-                tid = obj.get("tool_call_id") or ""
-                messages.append(
-                    ToolMessage(
-                        content=str(obj.get("content", "")),
-                        tool_call_id=str(tid),
-                    )
-                )
-
-    return messages, meta
-
-def save_session_jsonl(
-    path: str,
-    messages: list[BaseMessage],
-    existing_meta: dict[str, Any] | None,
-) -> dict[str, Any]:
-    """整檔覆寫：第一行 metadata（更新 updated_at），其餘每行一則 user／assistant／tool。"""
-    now = datetime.now().isoformat()
-    if existing_meta is None:
-        meta = _default_metadata(created_at=now)
-    else:
-        meta = dict(existing_meta)
-        meta["_type"] = "metadata"
-        meta["key"] = meta.get("key", "session")
-        if "created_at" not in meta:
-            meta["created_at"] = now
-        meta["updated_at"] = now
-
-    lines: list[str] = [json.dumps(meta, ensure_ascii=False)]
-
-    for m in messages:
-        ts = datetime.now().isoformat()
-        if isinstance(m, HumanMessage):
-            row = {"role": "user", "content": m.content, "timestamp": ts}
-        elif isinstance(m, AIMessage):
-            row = {"role": "assistant", "content": m.content, "timestamp": ts}
-            tc = getattr(m, "tool_calls", None)
-            if tc:
-                row["tool_calls"] = tc
-        elif isinstance(m, ToolMessage):
-            row = {
-                "role": "tool",
-                "content": m.content,
-                "tool_call_id": m.tool_call_id,
-                "timestamp": ts,
-            }
-        else:
-            continue
-        lines.append(json.dumps(row, ensure_ascii=False))
-
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
-        if lines:
-            f.write("\n")
-
-    return meta
-
-def get_identity() -> str:
-    # 同 WG-12：含 _runtime_env_note() 與【exec 注意】（見該題藍本）
-    ...
-
-def run_react_turn(
-    llm_tools: ChatOpenAI,
-    system_message: SystemMessage,
-    history: list[BaseMessage],
-    user_text: str,
-    *,
-    stream_stdout: bool = True,
-) -> tuple[str, list[BaseMessage]]:
-    human_message = HumanMessage(content=user_text)
-    messages: list[BaseMessage] = [system_message, *history, human_message]
-    idx_turn_start = 1 + len(history)
-
-    while True:
-        acc: AIMessageChunk | None = None
-        for chunk in llm_tools.stream(messages):
-            acc = chunk if acc is None else acc + chunk
-            if stream_stdout and chunk.content:
-                print(chunk.content, end="", flush=True)
-        if acc is None:
-            raise RuntimeError("模型串流未回傳任何 chunk")
-        response = message_chunk_to_message(acc)
-
-        if response.tool_calls:
-            if stream_stdout:
-                print()
-            messages.append(response)
-            for tc in response.tool_calls:
-                name = tc["name"]
-                raw_args = dict(tc.get("args") or {})
-                tool_obj = _TOOL_BY_NAME.get(name)
-                if tool_obj is None:
-                    result: str | int = f"未知工具: {name}"
-                else:
-                    try:
-                        result = tool_obj.invoke(raw_args)
-                    except Exception as e:
-                        result = str(e)  # 課堂示範：錯誤字串化寫入 ToolMessage
-                messages.append(
-                    ToolMessage(content=str(result), tool_call_id=tc["id"])
-                )
-        else:
-            messages.append(response)
-            break
-
-    turn_messages = messages[idx_turn_start:]
-    final_ai = next(
-        (m for m in reversed(turn_messages) if isinstance(m, AIMessage)),
-        None,
-    )
-    final_text = ((final_ai.content if final_ai else None) or "").strip()
-    return final_text, turn_messages
-
-def main() -> None:
-    load_dotenv()
-    api_key = os.getenv("OPENAI_API_KEY")
-    session_path = os.getenv("SESSION_JSONL_PATH", "session.jsonl")
-
-    loaded, session_meta = load_session_jsonl(session_path)
-    history: list[BaseMessage] = list(loaded)
-    system_message = SystemMessage(content=get_identity())
-
-    if api_key:
-        print(
-            "已讀到 API 金鑰設定（內容不顯示）；進入對話（ReAct + JSONL 寫入／載回可接續；輸入 quit / exit / q 結束）。"
-        )
-    else:
-        print("尚未讀到 OPENAI_API_KEY；請檢查 .env 或系統環境變數。")
-        return
-
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.2)
-    llm_tools = llm.bind_tools(TOOLS)
-
-    while True:
-        user_text = input("你：").strip()
-        if user_text.lower() in ("quit", "exit", "q"):
-            print("再見！")
-            break
-        if not user_text:
-            continue
-
-        print("助手：", end="", flush=True)
-        reply_text, turn_messages = run_react_turn(
-            llm_tools, system_message, history, user_text
-        )
-        print()
-
-        history.extend(turn_messages)
-        session_meta = save_session_jsonl(session_path, history, session_meta)
-
-if __name__ == "__main__":
-    main()
+session_path = os.getenv("SESSION_JSONL_PATH", "session_wiki_wg.jsonl")
+history, session_meta = load_session_jsonl(session_path)
+system_text = build_system_prompt()
+# ...
+history.extend(turn_messages)
+last_consolidated = int(session_meta.get("last_consolidated", 0) or 0)
+session_meta = save_session_jsonl(session_path, history, session_meta, last_consolidated)
 ```
 
+JSONL 輔助函式見示範檔第 190～321 行；ReAct 見第 324～393 行；`**main()`** 見第 408～446 行。
 
----
-
-# 第二部分 · 進階挑戰（AI Coding 實戰）（WG-17～WG-21）
 
 ---
 
@@ -1447,7 +866,7 @@ if __name__ == "__main__":
 
 ### 規格
 
-- **延續 WG-16**：`**get_identity`**、`**SystemMessage**`、**JSONL** 格式、`**load_session_jsonl`／`save_session_jsonl`**、每輪結束後整檔覆寫等**維持不變**（與 **WG-12～14** 之前題之語意銜接）。
+- **延續 WG-16**：`**build_system_prompt()`**、**JSONL** 格式、`**load_session_jsonl`／`save_session_jsonl`**、每輪結束後整檔覆寫等**維持不變**（與 **WG-12～16** 示範檔 `**wiki_wg_workshop.py**` 銜接）。
 - **資料分工**：
   - `**history`**：依時間順序完整保存**已發生**之 `**BaseMessage`**（`**HumanMessage`／`AIMessage`／`ToolMessage**` 等，與 **WG-15** **JSONL** 與 **WG-13** **ReAct** 一致；`**AIMessage`** 若含 `**tool_calls**` 仍屬同則物件）。啟動載入後 `**history**` 即為 `**load_session_jsonl` 回傳的串列**（**不**含 **system**）。
   - `**last_consolidated`**：**非負整數**，語意對齊長程式 `**Session.last_consolidated`**：從 `**history` 的該索引起**向後掃描，計算「若從某個**之後的使用者回合開頭**開始保留，已略過多少權重」。課堂可自 `**0`** 起；**選修**：每輪整併成功後把 `**last_consolidated`** 更新為本次回傳的 `**idx**`，減少重掃（須與實作一致）。
@@ -1456,7 +875,7 @@ if __name__ == "__main__":
 - **簡化成本**（本題自訂，**不**代表真實 **token**）：
   - 先定義 `**estimate_message_tokens(message: BaseMessage) -> int`**（本題即 `**len(message.content)**` 當 `**content` 為 `str**`；否則課堂自訂規則），`**cost` 與 `pick_consolidation_boundary` 必須共用**此定義。
   - `**cost = len(system_str) + sum(estimate_message_tokens(m) for m in msgs)`**。
-  其中 `**system_str**` 與本輪 `**SystemMessage.content**` 一致（**WG-12～18** 可為 `**get_identity()`**；**WG-19** 起併入長期記憶；**WG-20** 起改 `**build_system_prompt(loader)**`）；`**msgs**` 為 `***past0`（或裁切後的 `past`）與本輪 `human_message**` 之**所有**訊息（**含** `**ToolMessage`**；本題 `**estimate_message_tokens**` 以 `**content` 字串長度**為主，**選修**：對 `**tool_calls`** 另加權）。
+  其中 `**system_str**` 與本輪送模用 system 字串一致（**WG-12～18** 可為 `**build_system_prompt()`**；**WG-19** 起併入長期記憶；**WG-20** 起改 `**build_system_prompt(loader)**`）；`**msgs**` 為 `***past0`（或裁切後的 `past`）與本輪 `human_message**` 之**所有**訊息（**含** `**ToolMessage`**；本題 `**estimate_message_tokens**` 以 `**content` 字串長度**為主，**選修**：對 `**tool_calls`** 另加權）。
 - **常數 `TOKEN_BUDGET`**：正整數（檔案頂部常數即可；**選修**改為 `**int(os.getenv("TOKEN_BUDGET", "8000"))`** 等，無效時需有預設）。
 - **先判斷再裁切**：
   - 先令 `**past0 = history[last_consolidated:]`**，再算 `**cost**`（`**System` 字串** + `**past0`** + **本輪 `human_message`**），公式同前 `**len` 加總**。
@@ -1518,8 +937,8 @@ def pick_consolidation_boundary(
 # main 啟動：loaded, session_meta = load_session_jsonl(session_path)
 history: list[BaseMessage] = list(loaded)
 last_consolidated = 0
-system_message = SystemMessage(content=get_identity())
-system_str = get_identity()
+system_str = build_system_prompt()
+system_message = SystemMessage(content=system_str)
 
 # while True: 讀 user_text → human_message = HumanMessage(...)
 def message_cost(msgs: list[BaseMessage]) -> int:

@@ -966,7 +966,7 @@ _TOOL_BY_NAME: dict[str, Any] = {t.name: t for t in TOOLS}
 
 **WG-12** 已讓 `**system_message`** 與 `**history**` 分離，且送模 `**context_messages = [system_message, *history, human_message]**`；關程式後 **RAM** 仍清空。**WG-13** 起（課堂若已併 **WG-14** 之檔案／`exec` 工具組亦同）`**history`** 亦可含 **ReAct** 鏈上的 `**AIMessage`（含 `tool_calls`）** 與 `**ToolMessage`**。實務上把這些**可序列化**的對話訊息**寫進檔案**，留下可查紀錄，並讓下一題能**讀回**接續。
 
-本題在**沿用 WG-12 的送模與累積節奏**的前提下，**只做寫檔**：在本輪使用者回合與助手／工具鏈**已依序 `append` 進 `history`**（串流或 `**invoke**` 流程結束後）呼叫寫檔，把 `**session_meta**` 與 `**history` 內可持久化的訊息** **整檔覆寫**到 JSONL（**第一行**為 `**metadata`**）。語法對齊 **第 6 單元（檔案與例外處理）**：`**with open(..., "w", encoding="utf-8")`**、`**json.dumps**`、`**os.getenv**` 指定路徑。檔案長相可參考 `**session.jsonl.example**`，並**擴充** `**role: "tool"`** 等列以還原 `**ToolMessage**`（至少 `**content**`、`**tool_call_id**`）。若要做到「關閉再開仍保留完整 **ReAct** 語意」，`**assistant` 列**必須能還原**帶 `tool_calls` 的 `AIMessage`**（見下方 **規格** 之**完整版**定義）。
+本題在**沿用 WG-12 的送模與累積節奏**的前提下，**只做寫檔**：在本輪使用者回合與助手／工具鏈**已依序 `append` 進 `history`**（串流或 `**invoke**` 流程結束後）呼叫寫檔，把 `**session_meta**` 與 `**history` 內可持久化的訊息** **整檔覆寫**到 JSONL（**第一行**為 `**metadata`**）。語法對齊 **第 6 單元（檔案與例外處理）**：`**with open(..., "w", encoding="utf-8")`**、`**json.dumps**`、`**os.getenv**` 指定路徑。檔案長相可參考 `**session.jsonl.example**`（含 `user`／`assistant`／`tool` 與含 `tool_calls` 的 `assistant` 列）。
 
 **刻意不做**：程式一啟動就**讀舊檔**還原 `**history`**（一律從**空串列**開始，體感仍像 **WG-12** 首次執行——再開程式不會自動接續）。讀檔接續留給 **WG-16**。
 
