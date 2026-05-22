@@ -1,5 +1,5 @@
 """
-課堂合併示範：對齊 challenges-wiki-guided.md 指定範圍。
+課堂合併示範：對齊 `challenges-agent-workshop.md` 指定範圍（**WG-12～16** 以本檔為準）。
 
 - WG-01～03：進入點、`print`、變數與 f-string（見 `print_wg01_to_03_banner`）
 - WG-04～07：套件匯入、`load_dotenv`、環境變數、金鑰早退
@@ -325,7 +325,6 @@ def save_session_jsonl(
 # WG-10：串流輔助（chunk 累積為 AIMessage，邊收邊印文字）
 # ---------------------------------------------------------------------------
 
-
 def _stream_model_response(
     llm_tools: ChatOpenAI,
     messages: list[BaseMessage],
@@ -370,10 +369,10 @@ def run_react_turn(
 
     while True:
         response = _stream_model_response(llm_tools, messages)
+        messages.append(response)
         print()
 
         if response.tool_calls:
-            messages.append(response)
             for tc in response.tool_calls:
                 name = str(tc["name"])
                 raw_args = dict(tc.get("args") or {})
@@ -387,12 +386,10 @@ def run_react_turn(
                     )
                 )
         else:
-            messages.append(response)
             break
 
     turn_messages = messages[idx_turn_start:]
-    final_ai = next((m for m in reversed(turn_messages) if isinstance(m, AIMessage)), None)
-    final_text = ((final_ai.content if final_ai else None) or "").strip()
+    final_text = response.content.strip()
     return final_text, turn_messages
 
 
