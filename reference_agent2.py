@@ -1,7 +1,7 @@
 """
-Agent Workshop 標準程式（reference_agent2.py）— WG-12～19 合併示範。
+Agent Workshop 標準程式（reference_agent2.py）— WG-12～20 合併示範。
 
-對齊 `challenges-agent-workshop.md`（**WG-12～19**）；教練驗收與 Spec 以本檔為準。
+對齊 `challenges-agent-workshop.md`（**WG-12～20**）；教練驗收與 Spec 以本檔為準。
 學生實作請改專案根 **`main.py`**，勿直接修改本檔。
 
 - WG-12：`build_system_prompt`、`SystemMessage` 與 `history` 分離（system 不進 JSONL）
@@ -12,6 +12,7 @@ Agent Workshop 標準程式（reference_agent2.py）— WG-12～19 合併示範�
 - WG-17：`get_token_budget`、`estimate_message_tokens`、`pick_consolidation_boundary`；送模用 `past` 裁切
 - WG-18：`messages_for_model`（孤兒 tool 清理、缺 tool 回覆補洞；送模副本不污染 JSONL）
 - WG-19：`get_identity`、`memory_block_for_system`、ReAct 前 consolidation 整併、`memory/MEMORY.md`
+- WG-20：`SkillsLoader`、`SKILLS_LOADER`、Active／Skills 併入 `build_system_prompt()`
 
 預設對話檔：`session_wiki_wg.jsonl`（可用環境變數 `SESSION_JSONL_PATH` 覆寫）
 """
@@ -21,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -40,7 +42,7 @@ from langchain_openai import ChatOpenAI
 
 
 # ---------------------------------------------------------------------------
-# WG-12：人設（system 與 history 分離；完整 build_system_prompt 見 WG-19）
+# WG-12：人設（system 與 history 分離；完整 build_system_prompt 見 WG-20）
 # ---------------------------------------------------------------------------
 
 
@@ -567,15 +569,6 @@ def memory_block_for_system() -> str:
     return f"{LONG_TERM_MEMORY_HEADING}\n\n{body}"
 
 
-def build_system_prompt() -> str:
-    """WG-12～19 送模 system 唯一入口（WG-20 起改 build_system_prompt(loader)）。"""
-    parts = [get_identity()]
-    mem = memory_block_for_system()
-    if mem:
-        parts.append(mem)
-    return "\n\n---\n\n".join(parts) if len(parts) > 1 else parts[0]
-
-
 def append_history_log(line: str) -> None:
     MEMORY_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -778,7 +771,138 @@ def ensure_budget_before_react(
 
 
 # ---------------------------------------------------------------------------
-# 進入點（WG-12～19 合併主迴圈）
+# WG-20：SkillsLoader 與 system prompt 注入（模組級 SKILLS_LOADER）
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SkillEntry:
+    name: str
+    path: str
+    source: str
+    description: str
+    always: bool
+    body: str
+
+
+def split_frontmatter(text: str) -> tuple[dict[str, str], str]:
+    if not text.startswith("---"):
+        return {}, text
+
+    lines = text.splitlines()
+    end: int | None = None
+    for index in range(1, len(lines)):
+        if lines[index].strip() == "---":
+            end = index
+            break
+    if end is None:
+        return {}, text
+
+    meta: dict[str, str] = {}
+    for raw in lines[1:end]:
+        if ":" not in raw:
+            continue
+        key, value = raw.split(":", 1)
+        meta[key.strip()] = value.strip()
+
+    body = "\n".join(lines[end + 1 :]).strip()
+    return meta, body
+
+
+class SkillsLoader:
+    def __init__(self, workspace: Path) -> None:
+        self.workspace = workspace.resolve()
+        self.workspace_skills = self.workspace / "skills"
+        self.builtin_skills = self.workspace / "builtin_skills"
+        self.workspace_skills.mkdir(parents=True, exist_ok=True)
+        self.builtin_skills.mkdir(parents=True, exist_ok=True)
+
+    def _skill_path_for_read(self, skill_file: Path) -> str:
+        return skill_file.resolve().relative_to(self.workspace).as_posix()
+
+    def _entries_from_dir(
+        self, root: Path, source: str, skip: set[str]
+    ) -> list[SkillEntry]:
+        if not root.exists():
+            return []
+
+        entries: list[SkillEntry] = []
+        for skill_dir in sorted(root.iterdir(), key=lambda p: p.name):
+            skill_file = skill_dir / "SKILL.md"
+            if not skill_dir.is_dir() or not skill_file.is_file():
+                continue
+            if skill_dir.name in skip:
+                continue
+
+            text = skill_file.read_text(encoding="utf-8")
+            meta, body = split_frontmatter(text)
+            name = skill_dir.name
+            description = meta.get("description") or name
+            always = meta.get("always", "false").lower() == "true"
+            rel_path = self._skill_path_for_read(skill_file)
+            entries.append(
+                SkillEntry(name, rel_path, source, description, always, body)
+            )
+        return entries
+
+    def list_skills(self) -> list[SkillEntry]:
+        workspace_entries = self._entries_from_dir(
+            self.workspace_skills, "workspace", set()
+        )
+        workspace_names = {entry.name for entry in workspace_entries}
+        builtin_entries = self._entries_from_dir(
+            self.builtin_skills, "builtin", workspace_names
+        )
+        return workspace_entries + builtin_entries
+
+    def load_skill(self, name: str) -> str | None:
+        for root in (self.workspace_skills, self.builtin_skills):
+            path = root / name / "SKILL.md"
+            if path.is_file():
+                return path.read_text(encoding="utf-8")
+        return None
+
+
+def build_skills_summary(entries: list[SkillEntry]) -> str:
+    summarized = [e for e in entries if not e.always]
+    if not summarized:
+        return ""
+    lines = [f"- **{e.name}** — {e.description} `{e.path}`" for e in summarized]
+    return "\n".join(lines)
+
+
+SKILLS_LOADER = SkillsLoader(WORKSPACE)
+
+
+def build_system_prompt() -> str:
+    """WG-12～20 送模 system 唯一入口（人設 + 長期記憶 + Skills）。"""
+    parts: list[str] = [get_identity()]
+    mem = memory_block_for_system()
+    if mem:
+        parts.append(mem)
+
+    entries = SKILLS_LOADER.list_skills()
+    active = [e for e in entries if e.always]
+    if active:
+        body = "\n\n---\n\n".join(
+            f"### Skill: {e.name}\n\n{e.body}" for e in active
+        )
+        parts.append(f"# Active Skills\n\n{body}")
+
+    summary = build_skills_summary(entries)
+    if summary:
+        intro = (
+            "下列技能可擴充你的能力。若要使用某技能，請用 read_file 讀取清單中"
+            "該技能路徑下的 SKILL.md。\n"
+            "若該技能需額外套件或環境，請先依 SKILL.md 或專案說明安裝相依項目後再操作。\n\n"
+        )
+        parts.append("# Skills\n\n" + intro + summary)
+
+    return "\n\n---\n\n".join(parts) if len(parts) > 1 else parts[0]
+
+
+# ---------------------------------------------------------------------------
+# 進入點（WG-12～20 合併主迴圈）
 # ---------------------------------------------------------------------------
 
 
