@@ -46,8 +46,8 @@
 | **WG-15** | 對話落盤、人設不留痕——JSONL 先寫檔                       | 在 **WG-12** 送模結構下整檔覆寫 JSONL（首行 `metadata`；**對話列** `**user`／`assistant`／`tool`** 對齊 **WG-13**／**WG-14** 之 **ReAct** 鏈）；啟動**不**讀舊檔；**不**寫 `SystemMessage`。                                                                                                                                                                                                           | 5、6                 |
 | **WG-16** | 冷啟動撿回昨日脈絡——JSONL 載回                         | 啟動讀檔還原 `**history`**（`**assistant**` 列可還原含 `**tool_calls**` 之 `**AIMessage**`，`**tool**` 列還原 `**ToolMessage**`，對齊 **WG-15** 完整版）；壞行略過；關閉再開可接續。                                                                                                                                                                                             | 6                   |
 | **WG-17** | 視窗太窄先裁舊帳——字元預算與整併邊界                         | `estimate_message_tokens`、`pick_consolidation_boundary`、`last_consolidated`；超線裁切 `**past`**；成本含 `**ToolMessage**`（與 **WG-13**／**WG-14** 銜接）。                                                                                                                                                                                                         | 3、4、5               |
-| **WG-18** | 送模前先洗對話簿——transcript 修復與工具輸出預算              | 參考 `nanobot.agent.runner`：`messages_for_model` 管線（孤兒 tool 清理、缺洞補齊、tool 截斷、舊 tool 摘要、全對話字元預算）。                                                                                                                                                                                                                                              | 4、5、6               |
-| **WG-19** | 舊對話濃縮成長期備忘——整併與每輪讀回組裝                       | `memory/MEMORY.md`、`HISTORY.md`；超線時 **consolidation** `invoke`；`## Long-term Memory` 併入 **system**；送主模型前壓至 **≤ TOKEN_BUDGET//2**。                                                                                                                                                                                                          | 5、6                 |
+| **WG-18** | 送模前先洗對話簿——transcript 修復                         | 參考 `nanobot.agent.runner`：`messages_for_model`（LangChain `BaseMessage`）——孤兒 `ToolMessage` 清理、缺 tool 回覆補洞；完整 `history` 與送模副本分離（字元預算見 **WG-17**、整併見 **WG-19**）。                                                                                                                                                                 | 4、5、6               |
+| **WG-19** | 舊對話濃縮成長期備忘——整併與每輪讀回組裝                       | `memory/MEMORY.md`、`HISTORY.md`；**先規劃** `final_idx`（`cost ≤ TOKEN_BUDGET//2`）**再一次** consolidation 整包 `[last_consolidated:final_idx]`＋既有 MEMORY；`## Long-term Memory` 併入 **system**；`**ensure_budget_before_react**` 達標才 return，`**main()`** 不再重驗 cost。                                                                                                                                                                                                          | 5、6                 |
 | **WG-20** | 技能卡進工具箱——最小 SkillsLoader 與 system prompt 注入 | `skills/<name>/SKILL.md`、frontmatter 摘要、workspace／builtin 合併、同名覆蓋；`**build_system_prompt(loader)`** 依序：**課堂基底**（`**get_identity()`**）→ **長期記憶**（若有）→ `**# Active Skills`**（`always` 正文）→ `**# Skills**`（繁中引導＋摘要）；大段間 `**---**`；並**銜接 WG-13／WG-14**：各 **`BaseTool`** 之輸入 **JSON Schema**（或等價 `parameters`）、`**cast_params`／`validate_params**`、在 **`invoke` 實作前** 的 **`prepare_tool_call`**（或等價流程，**不**要求自訂 `Tool`／`ToolRegistry` 類別）。 | 4、5、6               |
 | **WG-21** | 眼睛也進對話——多模態附圖、`image_path` 與 JSONL 載回閉環 | JSONL 之 `**user**` 列僅存 **`image_path`**／`**media_type**`（**不**存長 base64）；冷啟動載入 `**history**` 為**純文字占位**；**送模層** `**messages_for_model**`：**僅本輪**可含 data URL 圖區塊、**歷史**舊附圖不得重送；`**open(..., "rb")**`／base64 僅在本輪組圖時使用；須使用支援 **vision** 之模型。 | 4、5、6               |
 
@@ -86,7 +86,7 @@
 | 6      | `**with open(..., "w", encoding="utf-8")`** 寫文字檔；`**json.dumps**`；`**os.getenv**` 指定路徑；與 `**datetime**` 產生時間戳欄位                                                                                                                                                                           | **WG-15**（`basic.py`）           | **僅寫入**：在 **WG-12** 送模結構下，每輪對話回合寫回 `**history` 後**（可含 **WG-13** `**ToolMessage`** 鏈）整檔覆寫 JSONL（首行 `**metadata**`）；啟動**不**讀檔；**不**寫 **SystemMessage**。                                                                                                                                                                                                                                                                                                 |
 | 6      | `**with open(..., encoding="utf-8")`** 讀文字檔；`**json.loads**`；`**try`／`except json.JSONDecodeError**` 略過壞行；載回後與寫檔行為閉環                                                                                                                                                                      | **WG-16**（`basic.py`）           | 在 **WG-15** 寫檔格式上，啟動時**讀回** `**history`**（`**user`／`assistant`／`tool**` 與 **WG-15** 閉環）與 `**metadata`**；送模仍對齊 `**[system_message, *history, human_message]**`；通過後接 **WG-17**。                                                                                                                                                                                                                                                                         |
 | 3      | `**for`** 自 `**last_consolidated**` 掃描 `**history**`，累加 `**estimate_message_tokens**`；在 `**HumanMessage**` 回合開頭更新 `**last_boundary**`，達 `**tokens_to_remove**` 即回傳 `**(idx, removed_tokens)**`；`**TOKEN_BUDGET**` 以常數或 `**int(os.getenv(...))**`（選修）定義                                    | **WG-17**（`main.py`／`basic.py`） | 延續 **WG-16**；`**history`** 與成本可含 `**ToolMessage**`（**WG-13**）；裁切邊界對齊 `**pick_consolidation_boundary`**；**完整** `**history`／JSONL**；須能說明 `**TOKEN_BUDGET`** 與 `**TOKEN_BUDGET // 2**` 如何換算成 `**tokens_to_remove**`；通過後接 **WG-18**（**transcript** 送模副本）再 **WG-19**（長期記憶整併）。                                                                                                                                                                              |
-| 6      | `**Path`** 與專用目錄 `**memory/**`；`**MEMORY.md` 覆寫**、`**HISTORY.md` 追加**（`**[YYYY-MM-DD HH:MM]`** 前綴）；超預算時以**第二支** LLM `**invoke`** 做整併、解析結構化結果；送**主**模型前成本須 **≤ `TOKEN_BUDGET // 2`**；固定子字串 `**## Long-term Memory**` 併入 `**SystemMessage.content**`（**不得**改放成 **user／assistant／tool** 對話列） | **WG-19**（`basic.py`／`main.py`） | 規格本質參考 `**long-term-memory-template`** 之 **Challenge A**（該檔為單題完整條文）；本題疊在 **WG-18** 之上：**JSONL** 與 **metadata**（`**last_consolidated`** 等）延續 **WG-15～16**（可含 `**tool`** 列）；長期脈絡改由 `**MEMORY.md`／`HISTORY.md**` 承載。                                                                                                                                                                                                                                     |
+| 6      | `**Path`** 與 `**memory/**`；`**MEMORY.md` 覆寫**、`**HISTORY.md` 追加**；ReAct 前 **先規劃 `**final_idx`**（`cost≤target`）再一次** consolidation 整包 `[last_consolidated:final_idx]`＋既有 MEMORY；`## Long-term Memory**` 併入 **system** | **WG-19**（`basic.py`／`main.py`） | 詳見 `**challenges-agent-workshop.md**` **WG-19**；疊在 **WG-18** 之上；**JSONL**／`**last_consolidated**` 延續 **WG-15～16**。                                                                                                                                                                                                                                     |
 | 4      | `**HumanMessage**` 之 `**content**` 可為**訊息區塊串列**（如 `**type: "text"**` 與 `**type: "image_url"**`）；**僅本輪送模**時自磁碟讀取影像位元組、編碼為 **base64 data URL** 後嵌入區塊；**歷史**附圖回合於送模副本中改為純文字占位（見 **`messages_for_model`**）                                                                                                                                                               | **WG-21**（`main.py`）             | 須使用支援 **vision** 之聊天模型（如 **`gpt-4o`**）；本題驗收**不要求**併 **WG-13** 之 **ReAct**／`**tool_calls**`（可假設純 **Human／Assistant** 對話＋附圖回合）。                                                                                                                                                                                                                                                                                                                                                    |
 | 6      | JSONL 之 `**user**` 列在 **WG-15** 基礎上擴充**可選**鍵 **`image_path`**／`**media_type**`；**不得**將圖檔全文 base64 寫入 JSONL；**WG-16** 載回時以**純文字占位**還原曾附圖之 `**user**`（**不必** `**open(..., "rb")**`）；本輪附圖與送模層剝除規則見題內 **規格**；檔案不存在時行為須與規格一致                                                                                                                                                       | **WG-21**（`main.py`）             | 與 **WG-15～16** 寫入／載回閉環；**首行 `metadata`** 與 `**assistant**` 列格式維持與 **WG-15** 對齊（本題不強求新增 `**tool**` 列）。                                                                                                                                                                                                                                                                                                                                                                      |
 
@@ -1477,7 +1477,7 @@ if __name__ == "__main__":
 - **簡化成本**（本題自訂，**不**代表真實 **token**）：
   - 先定義 `**estimate_message_tokens(message: BaseMessage) -> int`**（本題即 `**len(message.content)**` 當 `**content` 為 `str**`；否則課堂自訂規則），`**cost` 與 `pick_consolidation_boundary` 必須共用**此定義。
   - `**cost = len(system_str) + sum(estimate_message_tokens(m) for m in msgs)`**。
-  其中 `**system_str**` 與本輪 `**SystemMessage.content**` 一致（**WG-12～18** 可為 `**get_identity()`**；**WG-19** 起併入長期記憶；**WG-20** 起改 `**build_system_prompt(loader)**`）；`**msgs**` 為 `***past0`（或裁切後的 `past`）與本輪 `human_message**` 之**所有**訊息（**含** `**ToolMessage`**；本題 `**estimate_message_tokens**` 以 `**content` 字串長度**為主，**選修**：對 `**tool_calls`** 另加權）。
+  其中 `**system_str**` 與本輪 `**SystemMessage.content**` 一致（**WG-12～18** 可為 `**build_system_prompt()`**；**WG-19** 起同一函式內併入 `**get_identity()`** 與長期記憶；**WG-20** 起改 `**build_system_prompt(loader)**`）；`**msgs**` 為 `***past0`（或裁切後的 `past`）與本輪 `human_message**` 之**所有**訊息（**含** `**ToolMessage`**；本題 `**estimate_message_tokens**` 以 `**content` 字串長度**為主，**選修**：對 `**tool_calls`** 另加權）。
 - **常數 `TOKEN_BUDGET`**：正整數（檔案頂部常數即可；**選修**改為 `**int(os.getenv("TOKEN_BUDGET", "8000"))`** 等，無效時需有預設）。
 - **先判斷再裁切**：
   - 先令 `**past0 = history[last_consolidated:]`**，再算 `**cost**`（`**System` 字串** + `**past0`** + **本輪 `human_message`**），公式同前 `**len` 加總**。
@@ -1563,87 +1563,64 @@ context_messages = [system_message, *past, human_message]
 
 ---
 
-## Challenge WG-18：送模前先洗對話簿——transcript 修復與工具輸出預算
+## Challenge WG-18：送模前先洗對話簿——transcript 修復
 
 ### 情境
 
-**WG-17** 教你用 `pick_consolidation_boundary` 做「短期送模視窗」裁切；但真實 agent 還會遇到另一類問題：**對話串本身壞掉或太肥**，導致下一輪模型讀到不合法上下文、或直接被超長 `tool` 輸出塞爆。
+**WG-17** 教你用 `pick_consolidation_boundary` 做「短期送模視窗」裁切；**WG-19** 再把離開視窗的舊對話濃縮成 **MEMORY**。但真實 agent 還會遇到另一類問題：**ReAct 對話串本身壞掉**（孤兒 tool、缺 tool 回覆），導致下一輪模型讀到**不合法**上下文。
 
-`nanobot` 的做法很關鍵：維持一份「完整累積」的 `messages`（之後要寫 JSONL／存檔），但在每一輪呼叫模型前，另組一份 `**messages_for_model`**，允許做**修復／截斷／小型壓縮**，而且註解明確要求「**不要污染**之後要保存的新回合邊界」。
+`nanobot` 的做法很關鍵：維持一份「完整累積」的 `messages`（之後要寫 JSONL／存檔），但在每一輪呼叫模型前，另組一份 `**messages_for_model`**，只做**協議修復**，而且註解明確要求「**不要污染**之後要保存的新回合邊界」。**字元預算與舊對話整併不在本題**——分別見 **WG-17**、**WG-19**。
 
-### 規格（本題用「純 dict transcript」教，避免綁死 LangChain 型別）
+### 規格（與 **WG-12～17** 相同，使用 LangChain 訊息型別）
 
-- 訊息格式使用 OpenAI chat 風格 `list[dict]`，至少支援：
-  - `{"role": "system", "content": str}`
-  - `{"role": "user" | "assistant", "content": str}`
-  - `{"role": "assistant", "content": str, "tool_calls": [...]}`（每個 tool call 至少含 `id` 與 `function.name`）
-  - `{"role": "tool", "tool_call_id": str, "name": str, "content": str}`
-- 實作 `build_messages_for_model(messages, *, max_chars: int, max_tool_chars: int, keep_recent_tools: int) -> list[dict]`，輸入為「完整累積」的 transcript，輸出為「本輪要送進模型」的版本。
-- **禁止**直接就地修改輸入 list 裡的 dict（避免不小心改到要持久化的那份）；需要改動時請複製（shallow copy dict 即可，本題不要求深拷貝整段 content）。
+- 送模串列型別為 `list[BaseMessage]`，至少含 **`SystemMessage`**、`**HumanMessage**`、`**AIMessage**`（可含 `tool_calls`）、`**ToolMessage**`（含 `tool_call_id`；`name` 選填但建議保留，對齊 **WG-15** JSONL）。
+- 實作 `messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]`：輸入為本輪已組好、即將送進模型的 transcript（例如 `[SystemMessage, *past, human_message, …]`），輸出為**修復後的副本**。
+- **禁止**就地修改輸入 list 或其內的 message 物件（避免污染將寫入 JSONL 的 `history`）；需改動時回傳**新 list**（可 `list(messages)` 再 insert／過濾）。
+- **呼叫時機**：在 **WG-17** 決定 `past` 並組好送模串列之後、每次 `llm.stream`／`invoke` **之前**（含 ReAct 內層迴圈；對齊 `reference_agent2.py`）。
+- **本題不要求**：截斷單則 tool 輸出、省略舊 tool 結果、或依字元預算刪除 user 回合（上述由 **WG-17**／**WG-19** 與 **WG-14** 之 `read_file(offset, limit)` 分頁銜接）。
 
 #### A. 孤兒 tool 清理
 
-- 若出現 `role == "tool"`，但它的 `tool_call_id` 在更早的訊息中找不到對應的 assistant `tool_calls[].id`，則在 `messages_for_model` **移除**該 tool 訊息。
+- 若出現 `ToolMessage`，但其 `tool_call_id` 在更早的訊息中找不到對應 `AIMessage.tool_calls[].id`，則在副本中**移除**該 `ToolMessage`。
 
 #### B. 缺 tool 回覆補洞
 
-- 若 assistant 訊息含 `tool_calls`，但後面沒有對應的 `tool` 訊息（依 `tool_call_id` 對齊），則在 assistant 之後插入一則合成 tool 訊息：
-  - `content` 可用固定字串：`"[Tool result unavailable — call was interrupted or lost]"`（本題允許自訂，但須全檔一致）。
+- 若 `AIMessage` 含 `tool_calls`，但後面沒有對應的 `ToolMessage`（依 `tool_call_id` 對齊），則在該 `AIMessage` 之後（緊接其 tool 結果區段）插入合成 `ToolMessage`：
+  - `content` 在 `messages_for_model` 的 **B 步**、實際插入前以**區域變數**定義；預設 `"[Tool result unavailable — call was interrupted or lost]"`（允許自訂字串，但須全專案一致；**不必**模組常數或函式參數）。
+  - `tool_call_id` 與 `name`（若有）須與 `tool_calls` 項目一致。
 
-#### C. tool 輸出單則上限
+#### 與 WG-17／WG-19 的分工
 
-- 對 `role == "tool"` 且 `content` 為字串者：若 `len(content) > max_tool_chars`，截斷到 `max_tool_chars`，並在結尾加上提示（例如 `"\n\n[truncated]"`）。
-
-#### D. 小型壓縮
-
-- 針對 `name` 屬於集合 `{"read_file","exec","grep","glob","web_search","web_fetch","list_dir"}` 的 tool 訊息：
-  - 若這類 tool 訊息總數 `> keep_recent_tools`，將「最舊的」幾則中、且 `len(content) >= 500` 的長輸出，替換成單行摘要：`"[{name} result omitted from context]"`。
-  - **永遠保留**最後 `keep_recent_tools` 則此類 tool 訊息的原文（不做摘要）。
-
-#### E. 全對話字元預算
-
-- 用極簡成本：`cost(msg) = len(str(msg.get("content","")))`（`tool_calls` 可先不算進成本，本題不考精度）。
-- 若總成本 `> max_chars`：從**最舊的完整 user 回合**開始**整段刪除**，直到 `<= max_chars`。
-  - **user 回合定義**：由一則 `role == "user"` 起算，到**下一則** `user` 之前（不含下一則 user）的所有 `assistant`／`tool` 訊息；邊界語意與 **WG-17** 之「切在 user-turn 前、不拆 ReAct 鏈」一致。
-  - **禁止**在 `assistant` ↔ `tool` 之間逐則刪除。E 跑在 A～D **之後**；若逐則刪最舊非 system 訊息，會再次製造孤兒 tool 或缺 tool 回覆，而 A/B **不會**重跑。
-  - **保留尾端回合**：含「最後一則 `user`」的那一 whole turn **不得**刪除（該 `user` 之後的 `assistant`／`tool` 亦須完整保留）。
-- **與 WG-17 的差別**：WG-17 裁切 `history` 的 `past`（可能觸發長期記憶）；E 只裁**送模副本**，不改持久化的完整 transcript。
-- **尾端規則（分情境）**：
-  - **新使用者回合**：送模副本最後一則應是本輪 `user`；若做不到，允許插入一則極短 user：`"(conversation continued)"` 作為安全網，並在註解說明。
-  - **ReAct 工具續呼叫**：若前一則 assistant 已發出 `tool_calls` 且後面接了對應 `tool` 結果，送模副本最後一則可以是 `tool`；此時**不得**為了滿足「最後 user」而硬插假 user，否則會破壞工具協議。
-  - 不論哪種情境，第一則（若存在）仍應是 `system`。
+| 議題 | 負責題 |
+|---|---|
+| 哪些 turn 送進模型（`past` 裁切） | **WG-17** |
+| 被裁走的舊對話 → **MEMORY** 摘要 | **WG-19** |
+| assistant／tool 協議修復（送模副本） | **WG-18**（本題） |
+| 大檔分段讀取 | **WG-14** `read_file(offset, limit)` |
 
 ### 驗收條件
 
-- 給定含孤兒 tool 的輸入，`build_messages_for_model` 會移除孤兒，且不修改輸入 list 內容（可用 `id(old[i]) != id(out[i])` 或比對副本驗收）。
-- 給定缺 tool 回覆的輸入，輸出會補上合成 tool 訊息，使每個 `tool_call_id` 都有對應 tool。
-- 給定超長 tool content，輸出會被截斷到 `max_tool_chars`。
-- 給定大量可壓縮 tool 輸出，最舊且夠長的會變成單行摘要，但最後 `keep_recent_tools` 則保留原文。
-- 給定總成本超線輸入，輸出會**以 user 回合為單位**刪除夠多的舊訊息使成本下降（不要求最優，但要可重現、可解釋刪到哪一輪 user）。
-- 給定含多輪 ReAct 的輸入，E 刪除後 `assistant`／`tool` 協議仍完整（不會在中間拆出孤兒 tool 或未回覆的 `tool_calls`）。
-- 能一句話說明：為什麼這題要分「完整累積」與「送模用副本」兩份 transcript？
+- 給定含孤兒 `ToolMessage` 的輸入，`messages_for_model` 會移除孤兒，且**不修改**輸入 list（可比對 `messages is not out` 或輸入長度／物件 id 驗收）。
+- 給定缺 `ToolMessage` 的輸入，輸出會補上合成 `ToolMessage`，使每個 `tool_call_id` 都有對應 tool。
+- 給定協議已完整的輸入，輸出保留各則 `content` 原文（本題不為預算而截斷或刪除訊息）。
+- 能一句話說明：為什麼這題要分「完整累積 `history`」與「送模用副本」？
+- 能一句話說明：**WG-17** 與 **WG-18** 誰先誰後、各做什麼（17 裁 `past`；18 修即將送出的 messages 協議）。
 
 ### 藍本對應
 
-以下為**可讀性優先**的示意骨架（不要求與專案逐字一致）：
+以下為**可讀性優先**的示意骨架（不要求與專案逐字一致；完整版見 `reference_agent2.py`）：
 
 ```python
-from typing import Any
+from langchain_core.messages import BaseMessage, ToolMessage
 
-COMPACTABLE = {"read_file", "exec", "grep", "glob", "web_search", "web_fetch", "list_dir"}
+def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
+    out: list[BaseMessage] = list(messages)
 
-def build_messages_for_model(
-    messages: list[dict[str, Any]],
-    *,
-    max_chars: int,
-    max_tool_chars: int,
-    keep_recent_tools: int,
-) -> list[dict[str, Any]]:
-    out = [dict(m) for m in messages]  # shallow copy rows; replace content strings as needed
+    # A drop orphan ToolMessage rows
 
-    # A drop orphans, B backfill, C truncate tool, D microcompact
-    # E snip oldest whole user-turn blocks until cost <= max_chars (same boundary idea as WG-17;
-    #    never pop single rows inside assistant/tool chains — A/B already ran and won't re-run)
+    # B backfill missing ToolMessage after AIMessage tool_calls
+    unavailable_tool_text = "[Tool result unavailable — call was interrupted or lost]"
+    # ... insert ToolMessage(content=unavailable_tool_text, ...) as needed
     # （請依上方規格完成；此處略）
 
     return out
@@ -1666,27 +1643,26 @@ def build_messages_for_model(
 - **延續**：`**load_session_jsonl`／`save_session_jsonl`**、`**SESSION_JSONL_PATH**`、`**history**` 仍保存**完整**對話（`**user`／`assistant`／`tool`** 與 **WG-15** 一致）與 **metadata**；`**last_consolidated`** 仍寫入 **JSONL** 第一行 **metadata**（與 **WG-17** 語意一致）。
 - **新增儲層**（建議與 `**memory_react_agent.py`** 同層路徑概念）：專案根下 `**memory/**` 目錄內 `**MEMORY.md**`（**覆寫**式長期正文）、`**HISTORY.md`**（**追加**式、一行一筆摘要或失敗列）。
 
-#### 整併與預算（與 Challenge A 同一套語意）
+#### 整併與預算（規劃與整併分離；與 Challenge A 同一套語意）
 
-- **觸發與成本**：常數 `**TOKEN_BUDGET`** 名稱與語意同 **WG-17**（**字元長度**近似 token）。成本為：**system 字串**（含下節讀回之長期記憶區塊）**+** 短期 `**past`**（或與 `**history[last_consolidated:]**` 語意相同之未整併段）**+** 本輪 `**human_message`**；演算法須與 `**memory_react_agent.request_cost_chars**` **同一語意**——若改寫，請在 `**main.py`**（或作答檔）以**註解**說明對應欄位。
-- **嚴格大於** `**TOKEN_BUDGET`** 時才啟動「整併流程」並**得**呼叫 **consolidation 專用** LLM（`**invoke`／`ainvoke`** 等實際呼叫，**不可**略過）；**未超線時不得**為整併而呼叫該 LLM。
-- **整併後目標**：整併與 `**last_consolidated`**（游標）更新後、**呼叫主對話 `llm.stream` 之前**，以**同一套**成本公式重算，總成本**必須 ≤ `TOKEN_BUDGET // 2`**（與 template 之 `**target = budget // 2**` 語意一致）。仍高於此值**不得**送主模型，須**繼續**整併／切塊直至達成，或觸發題目已定義之**停止條件**（例如無可用 **user** 邊界——須在程式**註解**說明）。
-- **分輪與邊界（整併切塊）**：以 `**last_consolidated`** 為起點，**每輪整併流程只處理一段 chunk**；切分邊界**僅能落在 user-turn 前**（**不可**拆散同一 **user** 回合後之 **assistant／`ToolMessage`** 鏈，亦**不可**把 **user** 與其後第一則 **assistant** 切半）。邊界選擇須能推進整併並朝「整併後目標」收斂；與 **WG-17** 之 `**pick_consolidation_boundary`** 可並用或等價改寫，須**自洽**。游標後若**無任何** `**HumanMessage`** 則該輪**不整併**，等下一 **user** turn。
-- **整併單輪內步驟**（成功路徑摘要）：
-  1. 讀取目前 `**MEMORY.md`**（不存在視為空）。
-  2. 將「待整併之舊 chunk + 現有 **memory** 脈絡」送給 **consolidation 專用** LLM（可與主模型同型號或不同；須為實際 `**invoke`**）。
-  3. 期望回傳**可解析的結構化結果**（擇一）：**首選**單一 **JSON** 物件字串，且**僅兩鍵**：`**history_entry`**（字串）、`**memory_update**`（字串，**完整取代** `**MEMORY.md`** 內文之 markdown）；**或** **tool call** 兩參數語意同上。解析失敗計入「重試」；若 **provider** 不支援強制 **tool**，需有 **fallback**（例如改要求純 **JSON**），仍須滿足「兩欄可從回應抽出」。
-  4. 成功時：`**append_history`** 之**語意**與 `**memory_react_agent.append_history`** 一致——`**HISTORY.md**` 一行 `**[YYYY-MM-DD HH:MM] <內文>**`；`**history_entry**` 應為**單行**（內部換行改空白或截斷）。並**覆寫** `**MEMORY.md`** 為 `**memory_update**`。
-  5. 更新 `**last_consolidated**` 並 `**save_session_jsonl**`（寫回 **metadata** 與完整 `**history`**）。
-- **失敗策略**：同一 chunk 之 consolidation 最多重試 `**CONSOLIDATION_MAX_RETRIES`** 次（建議 **3**；**0** 表示不重試、直接 **fallback**，須**註解**）。若仍失敗：`**HISTORY.md`** 寫入**一行**，格式 `**[YYYY-MM-DD HH:MM] [CONSOLIDATION-FAILED]`**  後接**單行**（與 Challenge A 一致）；成功列**不得**使用該前綴。失敗後仍須更新 `**last_consolidated`** 使該 chunk 離開短期送入範圍；`**MEMORY.md**` 維持不變或僅註記擇一、**全專案一致**並**註解**。
+**核心流程（ReAct 前）**：**先規劃邊界、再一次整併、再推游標**——**不是**「每推進一次 `last_consolidated` 就呼叫一次 consolidation LLM」。詳細步驟與 **WG-19** 規格同 **`challenges-agent-workshop.md`** 本題「整併與預算」小節；以下為摘要。
+
+- **成本**：`**budget = get_token_budget()**`、`**target = budget // 2**`；`**cost = len(build_system_prompt()) + message_cost([*history[last_consolidated:], human_message])**`。
+- **`ensure_budget_before_react` 契約**：僅在 Phase A 確認 `**cost <= target**` 時 `**return**`；`**main()`** 回傳後**直接** ReAct，**不得**再重算 cost。
+- **觸發**：`**cost > target**` 進入外層迴圈；`**cost <= target**` 不整併、不推游標。
+- **Phase A（規劃）**：用 `**pick_consolidation_boundary(history, last_consolidated, cost - target)**` 算出 `**final_idx**`（無有效邊界 → fallback `**final_idx = len(history)**`；`**past**` 已空仍超標 → 硬失敗）；**不**呼叫 consolidation LLM。
+- **Phase B（整併）**：`**history[last_consolidated:final_idx]**` **整包**＋既有 `**MEMORY.md**` **一次** `**invoke**` → 成功則 `**memory_update**` 覆寫 **MEMORY**；**無論成敗** `**last_consolidated = final_idx**`、`**save_session_jsonl**`（ensure **不**另檢整併是否成功）；回到 Phase A 重算。
+- **禁止**：靜默裁切不整併；整併忽略既有 MEMORY；推一格整併一格（同一包應一次 LLM）。
 
 #### 讀回與每輪送模組裝
 
-- **每次**送主模型前，用於估算與實際 `**SystemMessage.content`** 的**系統字串**（**僅含 WG-12～WG-19**、尚未併 **Skills** 時）至少包含：（1）**WG-12** 之 `**get_identity()`**（課堂規則／顯示名／【執行環境】／【exec 注意】）；（2）自 `**MEMORY.md`** 讀出、以固定標題 `**## Long-term Memory**` 包起來的區塊（標題字串固定；可經 `**memory_block_for_system()`** 組裝）。**長期記憶須緊接在課堂人設之後**，且仍只出現在 `**SystemMessage.content`** 內（**不得**改放成 **user／assistant／tool** 對話列），與 **Challenge A** 語意一致。
-- **併入 WG-20（Skills）時**：建議以 `**build_system_prompt(loader)`**（或等價函式）一次組裝，**大段順序**為：**課堂基底**（等同 **WG-12**，可為 `**get_identity()`**）→ **長期記憶**（若有內文；同 `**## Long-term Memory`** 與空檔不注入規則）→ `**# Active Skills**`（僅 `**always: true**` 之正文；多則之間可插 `**---**`；小標建議 `**### Skill: {name}**`）→ `**# Skills**`（僅非 `**always**` 之摘要＋**繁中**說明須以 `**read_file`** 讀清單中路徑之 `**SKILL.md**`，並一句帶過依賴安裝）。**課堂基底與長期記憶之間不得插入 Active／Skills**（維持 **WG-19** 與 **Challenge A** 之「規則先、記憶次之」）。各 **大段** 之間建議以 `**\n\n---\n\n`** 串接。若沒有任何非 `**always**` 技能，**不得**出現空 `**# Skills`** 標題。
+- **對外入口**：`**main()`**、成本估算、`**run_react_turn**` 仍只呼叫 `**build_system_prompt() -> str**`（**WG-19** 無 **Skills** 時為無參數版），**不得**改以 `**get_identity()`** 取代送模 system。
+- **WG-19 重構**：抽出 `**get_identity() -> str**`；`**build_system_prompt()`** 內依序拼接 `**get_identity()**` 與 `**memory_block_for_system()**`（若有）。
+- **每次**送主模型前，上述 `**build_system_prompt()`** 回傳之 system 字串（**僅含 WG-12～WG-19**、尚未併 **Skills** 時）至少包含：（1）`**get_identity()`** 之課堂基底；（2）自 `**MEMORY.md`** 讀出、以固定標題 `**## Long-term Memory**` 包起來的區塊（可經 `**memory_block_for_system()`** 組裝）。**長期記憶須緊接在課堂人設之後**，且仍只出現在 `**SystemMessage.content`** 內（**不得**改放成 **user／assistant／tool** 對話列），與 **Challenge A** 語意一致。
+- **併入 WG-20（Skills）時**：`**build_system_prompt(loader)`** 仍為**唯一**送模組裝入口；**大段順序**為：**課堂基底**（`**get_identity()`**）→ **長期記憶**（若有）→ `**# Active Skills**` → `**# Skills**`（細節同 **WG-20** 規格）。
 - `**history`（或裁切後之 `past`）** 僅含 `**last_consolidated` 之後**、**尚未經整併移出視窗**之短期內容；**不得**把已整併走之舊段再當「新訊息」重送一遍。
 - `**MEMORY.md` 為空或僅空白**：不得出現**孤立**之 `**## Long-term Memory`** 標題；與「完全不注入記憶區塊」擇一、**全專案一致**。
-- **長度保護**：若 `**MEMORY.md` 純內文**（不含標題）超過 `**MEMORY_MAX_CHARS`**（建議 **6000**），先**由尾端截斷**至該長度再組進 **system**（截斷後再套區塊標題亦可）。**選修**：截斷前對 **memory** 本體再做二次摘要 **LLM**——須**註解**觸發條件；課堂**允許只做截斷**即通過長度保護項。
+- **讀回不截斷**：`**memory_block_for_system()`** 讀取 `**MEMORY.md**` 時**全文**併入 system；**不得**在讀回階段靜默截斷。若 MEMORY 過長導致超標，由 **WG-19 整併**或調整 `**TOKEN_BUDGET**` 處理。
 
 ### 驗收條件
 
@@ -1694,20 +1670,40 @@ def build_messages_for_model(
 
 **整併與預算**
 
-- 觸發／不觸發與 **consolidation** 呼叫行為符合上節；送主模型前成本 **≤ `TOKEN_BUDGET // 2`**。
-- 成功路徑：短期送入範圍不再含已整併內容，且 `**MEMORY.md`／`HISTORY.md**` 符合上節；失敗路徑：`**HISTORY.md**` 有 `**[CONSOLIDATION-FAILED]**` 列且短期已不含該 chunk。
-- **可觀察**：整併當輪有一次 **consolidation** 用 **LLM** 呼叫（非僅調游標）；成功列與失敗列前綴區分正確。
-- 能說明：為何整併邊界取在 **user-turn**，而非任意索引切訊息。
+- 送主模型前 `**cost <= TOKEN_BUDGET // 2**`；由 `**ensure_budget_before_react**` **保證**。
+- **Phase A** 不呼叫 consolidation LLM；**Phase B** 整包 `**history[last_consolidated:final_idx]**` 一次整併，且含既有 **MEMORY**。
+- **邊界 fallback**／**past 空仍超標** 之硬失敗語意同 **`challenges-agent-workshop.md`**。
+- 能說明：**規劃**與**整併**分離；為何整併須含既有 MEMORY；為何邊界在 **user-turn**。
 
 **讀回與組裝**
 
 - 每輪讀取約定路徑之 `**memory/MEMORY.md`**；`**history`／`past**` 僅自 `**last_consolidated**` 之後，不重複送入已整併內容。
-- **可觀察**：`**MEMORY.md`** 非空時，`**SystemMessage.content**` 含完整子字串 `**## Long-term Memory**`。
+- **可觀察**：`**MEMORY.md`** 非空時，`**SystemMessage.content**`（來自 `**build_system_prompt()`**）含完整子字串 `**## Long-term Memory**`。
+- 能指出：`**main()`** 仍呼叫 `**build_system_prompt()`**；`**get_identity()`** 只在 `**build_system_prompt()`** 內被呼叫。
+- **可觀察**：`**ensure_budget_before_react**` 回傳後，`**main()`** **直接** `**run_react_turn**`，**不再**重算 cost。
 - 能說明：長期記憶放 **system** 與放一般對話訊息之差異。
 
 ### 藍本對應
 
-**專案根目錄 `basic.py`** 已合併 **WG-12～WG-19**（**WG-13** 工具 **ReAct** 可參考 `**memory_react_agent.py`**）：含 `**memory/MEMORY.md`／`memory/HISTORY.md**`、`**system_content_for_model()**`（`**## Long-term Memory**`）、`**request_cost_chars**`、超 `**TOKEN_BUDGET**` 時 `**consolidation_llm.invoke**` 整併與 `**CONSOLIDATION_MAX_RETRIES**`／`**[CONSOLIDATION-FAILED]**` 失敗列，以及送主模型前壓至 **≤ `TOKEN_BUDGET // 2`** 之迴圈。學生作答仍可以 `**main.py**` 擴寫或參考 `**basic.py**` 分段摘抄；可並行參考 `**memory_react_agent.py**` 之 `**request_cost_chars**` 與 `**run_react_turn**` 語意。
+**專案根目錄 `basic.py`** 已合併 **WG-12～WG-19**（**WG-13** 工具 **ReAct** 可參考 `**memory_react_agent.py`**）：含 `**memory/MEMORY.md`／`memory/HISTORY.md**`、`**build_system_prompt()`**、ReAct 前 **規劃→整併→推游標** 外層迴圈（詳見 `**challenges-agent-workshop.md**` **WG-19**）。學生作答仍可以 `**main.py**` 擴寫或參考 `**basic.py**` 分段摘抄。
+
+```python
+def get_identity() -> str:
+    """WG-12 人設／規則；WG-19 自 build_system_prompt 內抽出。"""
+    ...
+
+def memory_block_for_system() -> str:
+    """有 MEMORY.md 內文才回傳 ## Long-term Memory 區塊。"""
+    ...
+
+def build_system_prompt() -> str:
+    """WG-12～19 送模 system 唯一入口（WG-20 起改 build_system_prompt(loader)）。"""
+    parts = [get_identity()]
+    mem = memory_block_for_system()
+    if mem:
+        parts.append(mem)
+    return "\n\n---\n\n".join(parts) if len(parts) > 1 else parts[0]
+```
 
 ```text
 專案根/
@@ -1795,7 +1791,7 @@ always: false
   - 對每個非 `always` skill 產生一行摘要，格式可自訂，但須含 **skill 名稱、description、SKILL.md 路徑**。
   - 範例（一行）：`**class-helper`**、description、以及反引號內 `**skills/class-helper/SKILL.md**` 路徑皆須可從該行讀出。
 - 實作 `**build_system_prompt(loader: SkillsLoader) -> str**`（或等價名稱），將 **WG-12** 課堂基底、**WG-19** 長期記憶（若有）、與本題 **Skills** 併成**單一**送模用字串（亦供 **WG-17** 成本估算與 `**SystemMessage.content`** 使用）。**建議大段順序**（與合併示範 `**main.py`** 一致）：
-  1. **課堂基底**：直接呼叫 **WG-12** 之 `**get_identity()`**。
+  1. **課堂基底**：`**get_identity()`**（自 **WG-12** 於 **WG-19** 抽出；僅由 `**build_system_prompt**` 呼叫）。
   2. **長期記憶**：同 **WG-19** `**memory_block_for_system()`** 語意（有內文才 append）。
   3. **Active Skills**：`always: true` 的 skill，放入 **去掉 frontmatter 後的正文**；區塊標題 `**# Active Skills`**。
   4. **Skills**：`build_skills_summary` 產生之清單；區塊標題 `**# Skills`**；其前附**繁體中文**短引導（須明示以 `**read_file`** 讀取清單中路徑之 `**SKILL.md**`，並一句帶過「若需套件／環境請先依該檔或專案說明安裝」）。
@@ -1927,7 +1923,7 @@ def build_skills_summary(entries: list[SkillEntry]) -> str:
     return "\n".join(lines)
 
 
-# get_identity() 沿用 WG-12 藍本，此處不重複定義。
+# get_identity() 定義見 WG-12／WG-19 藍本；僅由 build_system_prompt 呼叫。
 
 def memory_block_for_system() -> str:
     """WG-19：有 MEMORY.md 內文才回傳 ## Long-term Memory 區塊；此藍本略讀檔，實作請接真檔案。"""

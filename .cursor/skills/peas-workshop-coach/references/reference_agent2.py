@@ -1,7 +1,7 @@
 """
-Agent Workshop 標準程式（reference_agent2.py）— WG-12～17 合併示範。
+Agent Workshop 標準程式（reference_agent2.py）— WG-12～19 合併示範。
 
-對齊 `challenges-agent-workshop.md`（**WG-12～17**）；教練驗收與 Spec 以本檔為準。
+對齊 `challenges-agent-workshop.md`（**WG-12～19**）；教練驗收與 Spec 以本檔為準。
 學生實作請改專案根 **`main.py`**，勿直接修改本檔。
 
 - WG-12：`build_system_prompt`、`SystemMessage` 與 `history` 分離（system 不進 JSONL）
@@ -10,6 +10,8 @@ Agent Workshop 標準程式（reference_agent2.py）— WG-12～17 合併示範�
 - WG-15：每輪後 `save_session_jsonl`（先寫檔；啟動不讀舊檔）
 - WG-16：啟動時 `load_session_jsonl`（略過壞行；關閉再開可接續）
 - WG-17：`get_token_budget`、`estimate_message_tokens`、`pick_consolidation_boundary`；送模用 `past` 裁切
+- WG-18：`messages_for_model`（孤兒 tool 清理、缺 tool 回覆補洞；送模副本不污染 JSONL）
+- WG-19：`get_identity`、`memory_block_for_system`、ReAct 前 consolidation 整併、`memory/MEMORY.md`
 
 預設對話檔：`session_wiki_wg.jsonl`（可用環境變數 `SESSION_JSONL_PATH` 覆寫）
 """
@@ -38,11 +40,12 @@ from langchain_openai import ChatOpenAI
 
 
 # ---------------------------------------------------------------------------
-# WG-12：system prompt（system 與 history 分離；system 不寫入 JSONL）
+# WG-12：人設（system 與 history 分離；完整 build_system_prompt 見 WG-19）
 # ---------------------------------------------------------------------------
 
 
-def build_system_prompt() -> str:
+def get_identity() -> str:
+    """WG-12 人設／規則；WG-19 自 build_system_prompt 內抽出。"""
     system_text = "你是課堂程式助教，並請使用繁體中文。"
     nick = "法鬥超人"
     return f"{system_text}\n\n【本場次顯示名稱】{nick}"
@@ -95,6 +98,7 @@ def run_react_turn(
     """單輪 ReAct：stream → tool_calls → ToolMessage 迴圈，直到純文字回覆。
 
     WG-17：`past` 為裁切後送模切片；完整 `history` 由 `main()` 另行累積。
+    WG-18：每段 stream 前以 `messages_for_model` 修復 transcript。
     """
     human_message = HumanMessage(content=user_text)
     messages: list[BaseMessage] = [
@@ -105,6 +109,7 @@ def run_react_turn(
     idx_turn_start = 1 + len(past)
 
     while True:
+        messages = messages_for_model(messages)
         response = _stream_model_response(llm_tools, messages)
         messages.append(response)
         print()
@@ -451,30 +456,329 @@ def pick_consolidation_boundary(
     return last_boundary
 
 
-def compute_past_for_turn(
-    history: list[BaseMessage],
-    last_consolidated: int,
+def request_cost_chars(
     system_text: str,
+    past: list[BaseMessage],
     human_message: HumanMessage,
-) -> tuple[list[BaseMessage], int]:
-    """決定本輪送模用的 past；整併成功時更新 last_consolidated。"""
-    budget = get_token_budget()
-    past0 = history[last_consolidated:]
-    cost = len(system_text) + message_cost([*past0, human_message])
-
-    if cost <= budget:
-        return past0, last_consolidated
-
-    tokens_to_remove = max(0, cost - budget // 2)
-    boundary = pick_consolidation_boundary(history, last_consolidated, tokens_to_remove)
-    if boundary is not None:
-        idx, _ = boundary
-        return history[idx:], idx
-    return past0, last_consolidated
+) -> int:
+    """WG-17／WG-19 共用成本公式。"""
+    return len(system_text) + message_cost([*past, human_message])
 
 
 # ---------------------------------------------------------------------------
-# 進入點（WG-12～17 合併主迴圈）
+# WG-18：送模 transcript 修復（完整 history 與 messages_for_model 副本分離）
+# ---------------------------------------------------------------------------
+
+
+def _known_tool_call_ids(messages: list[BaseMessage], before_index: int) -> set[str]:
+    ids: set[str] = set()
+    for msg in messages[:before_index]:
+        if not isinstance(msg, AIMessage):
+            continue
+        for tc in msg.tool_calls or []:
+            if isinstance(tc, dict):
+                tid = tc.get("id")
+                if tid:
+                    ids.add(str(tid))
+    return ids
+
+
+def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """WG-18：自完整 transcript 產出送模副本（A 孤兒 tool、B 缺 tool 補洞）。
+
+    回傳新 list，不就地修改輸入（避免污染將寫入 JSONL 的 history）。
+    """
+    out: list[BaseMessage] = list(messages)
+
+    # A: drop orphan ToolMessage rows
+    kept: list[BaseMessage] = []
+    for msg in out:
+        if isinstance(msg, ToolMessage):
+            tid = str(msg.tool_call_id or "")
+            if tid and tid in _known_tool_call_ids(kept, len(kept)):
+                kept.append(msg)
+        else:
+            kept.append(msg)
+    out = kept
+
+    # B: backfill missing ToolMessage after AIMessage tool_calls
+    unavailable_tool_text = "[Tool result unavailable — call was interrupted or lost]"
+    i = 0
+    while i < len(out):
+        msg = out[i]
+        if not isinstance(msg, AIMessage):
+            i += 1
+            continue
+        tool_calls = msg.tool_calls or []
+        if not tool_calls:
+            i += 1
+            continue
+
+        j = i + 1
+        responded: set[str] = set()
+        while j < len(out) and isinstance(out[j], ToolMessage):
+            responded.add(str(out[j].tool_call_id or ""))
+            j += 1
+
+        insert_at = j
+        for tc in tool_calls:
+            if not isinstance(tc, dict):
+                continue
+            tid = str(tc.get("id", "") or "")
+            if not tid or tid in responded:
+                continue
+            name = str(tc.get("name", "") or "").strip() or None
+            out.insert(
+                insert_at,
+                ToolMessage(
+                    content=unavailable_tool_text,
+                    tool_call_id=tid,
+                    name=name,
+                ),
+            )
+            insert_at += 1
+        i += 1
+
+    return out
+
+
+# ---------------------------------------------------------------------------
+# WG-19：長期記憶整併（ReAct 前；memory/MEMORY.md、memory/HISTORY.md）
+# ---------------------------------------------------------------------------
+
+MEMORY_DIR = Path("memory")
+MEMORY_PATH = MEMORY_DIR / "MEMORY.md"
+HISTORY_PATH = MEMORY_DIR / "HISTORY.md"
+LONG_TERM_MEMORY_HEADING = "## Long-term Memory"
+CONSOLIDATION_MAX_RETRIES = 3
+
+
+def read_memory_md() -> str:
+    if not MEMORY_PATH.is_file():
+        return ""
+    return MEMORY_PATH.read_text(encoding="utf-8").strip()
+
+
+def memory_block_for_system() -> str:
+    """有 MEMORY.md 內文才回傳 ## Long-term Memory 區塊（全文讀入，不截斷）。"""
+    body = read_memory_md()
+    if not body:
+        return ""
+    return f"{LONG_TERM_MEMORY_HEADING}\n\n{body}"
+
+
+def build_system_prompt() -> str:
+    """WG-12～19 送模 system 唯一入口（WG-20 起改 build_system_prompt(loader)）。"""
+    parts = [get_identity()]
+    mem = memory_block_for_system()
+    if mem:
+        parts.append(mem)
+    return "\n\n---\n\n".join(parts) if len(parts) > 1 else parts[0]
+
+
+def append_history_log(line: str) -> None:
+    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+    single = " ".join(line.split())
+    with open(HISTORY_PATH, "a", encoding="utf-8") as f:
+        f.write(f"[{ts}] {single}\n")
+
+
+def write_memory_md(content: str) -> None:
+    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    MEMORY_PATH.write_text(content, encoding="utf-8")
+
+
+def _message_plaintext(message: BaseMessage) -> str:
+    if isinstance(message, HumanMessage):
+        role = "user"
+    elif isinstance(message, AIMessage):
+        role = "assistant"
+    elif isinstance(message, ToolMessage):
+        role = "tool"
+    else:
+        role = "other"
+    content = message.content if isinstance(message.content, str) else str(message.content)
+    extra = ""
+    if isinstance(message, AIMessage) and message.tool_calls:
+        names = [
+            str(tc.get("name", ""))
+            for tc in message.tool_calls
+            if isinstance(tc, dict)
+        ]
+        extra = f" [tool_calls: {', '.join(names)}]"
+    if len(content) > 2000:
+        content = content[:2000] + "…"
+    return f"{role}{extra}: {content}"
+
+
+def _chunk_to_text(chunk: list[BaseMessage]) -> str:
+    return "\n".join(_message_plaintext(m) for m in chunk)
+
+
+def _parse_consolidation_json(text: str) -> dict[str, str] | None:
+    text = text.strip()
+    try:
+        obj = json.loads(text)
+        if isinstance(obj, dict) and "history_entry" in obj and "memory_update" in obj:
+            return {
+                "history_entry": str(obj["history_entry"]),
+                "memory_update": str(obj["memory_update"]),
+            }
+    except json.JSONDecodeError:
+        pass
+
+    start = text.find("{")
+    end = text.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            obj = json.loads(text[start : end + 1])
+            if isinstance(obj, dict) and "history_entry" in obj and "memory_update" in obj:
+                return {
+                    "history_entry": str(obj["history_entry"]),
+                    "memory_update": str(obj["memory_update"]),
+                }
+        except json.JSONDecodeError:
+            pass
+    return None
+
+
+def _invoke_consolidation(
+    consolidation_llm: ChatOpenAI,
+    chunk_text: str,
+    existing_memory: str,
+) -> dict[str, str] | None:
+
+    consolidation_system = """你是長期記憶整併助手。將「既有 MEMORY.md」與「待整併對話 chunk」濃縮成下一輪仍需要的狀態。
+
+MEMORY.md 是決策與狀態備忘，不是對話逐字稿、不是 tool 輸出備份、不能取代 session.jsonl。
+
+應寫入 memory_update（精簡）：
+- 使用者穩定偏好（建議 ≤3 條）
+- 當前任務目標一句、進行中狀態（做到第幾步、還缺什麼）
+- 已確認的規格或決策（衝突時只保留目前有效一條）
+- 必要專案錨點（例如檔名；建議 ≤2 條）
+
+不應寫入 memory_update：
+- 每輪問答原文、問候、一次性測試
+- tool 成功／失敗過程、retry 細節
+- 版本史逐條堆疊（A 後來改 B）
+- Skill 完整流程正文（只寫「見 skill: xxx」）
+- 除錯過程、語法錯誤、一次性統計
+
+整併原則：
+- memory_update 須合併既有 MEMORY、刪除過期與重複，禁止逐句貼上 chunk
+- 對下一輪無幫助的資訊不要寫
+- history_entry 僅供 HISTORY.md 一行 log，不要把 HISTORY 內容抄進 MEMORY
+
+僅回傳 JSON 物件，且只能有兩個鍵：
+- "history_entry"：繁中單行，摘要本次整併主題
+- "memory_update"：完整 markdown，將覆寫 memory/MEMORY.md（非 append）"""
+
+    user_prompt = (
+        f"既有 MEMORY.md：\n{existing_memory or '（空）'}\n\n"
+        f"待整併對話 chunk：\n{chunk_text}\n\n"
+        "僅回傳 JSON，不要其他文字。"
+    )
+    response = consolidation_llm.invoke(
+        [
+            SystemMessage(content=consolidation_system),
+            HumanMessage(content=user_prompt),
+        ]
+    )
+    content = response.content if isinstance(response.content, str) else str(response.content)
+    return _parse_consolidation_json(content)
+
+
+def _consolidate_pack(
+    consolidation_llm: ChatOpenAI,
+    chunk: list[BaseMessage],
+    existing_memory: str,
+) -> None:
+    """Phase B：整包 chunk + 既有 MEMORY 一次 consolidation；寫 MEMORY／HISTORY。"""
+    if not chunk:
+        return
+
+    chunk_text = _chunk_to_text(chunk)
+    max_retries = CONSOLIDATION_MAX_RETRIES
+
+    if max_retries <= 0:
+        fail_note = " ".join(chunk_text.split())[:200]
+        append_history_log(f"[CONSOLIDATION-FAILED] {fail_note}")
+        return
+
+    for _ in range(max_retries):
+        parsed = _invoke_consolidation(consolidation_llm, chunk_text, existing_memory)
+        if parsed is None:
+            continue
+        entry = " ".join(parsed["history_entry"].split())
+        write_memory_md(parsed["memory_update"].strip())
+        append_history_log(entry)
+        return
+
+    fail_note = " ".join(chunk_text.split())[:200]
+    append_history_log(f"[CONSOLIDATION-FAILED] {fail_note}")
+
+
+def ensure_budget_before_react(
+    consolidation_llm: ChatOpenAI,
+    history: list[BaseMessage],
+    last_consolidated: int,
+    human_message: HumanMessage,
+) -> int:
+    """WG-19：ReAct 前外層迴圈 — Phase A 規劃 final_idx，Phase B 整包整併 + 推游標。
+
+    僅在 cost <= TOKEN_BUDGET // 2 時 return；呼叫端可直接進入 ReAct，無需再驗證。
+    """
+    target = get_token_budget() // 2
+
+    while True:
+        # Phase A — 規劃（不呼叫 consolidation LLM）
+        system_text = build_system_prompt()
+        past0 = history[last_consolidated:]
+        cost = request_cost_chars(system_text, past0, human_message)
+        if cost <= target:
+            return last_consolidated
+
+        tokens_to_remove = max(0, cost - target)
+        boundary = pick_consolidation_boundary(
+            history, last_consolidated, tokens_to_remove
+        )
+        if boundary is None or boundary[0] <= last_consolidated:
+            # 無可用 user 邊界時，整併剩餘全部 history 尾段
+            if last_consolidated >= len(history):
+                raise RuntimeError(
+                    f"WG-19：past 已空仍無法壓至 target（cost={cost}，target={target}）。"
+                    " 請縮短 MEMORY 或調高 TOKEN_BUDGET。"
+                )
+            final_idx = len(history)
+        else:
+            final_idx = boundary[0]
+
+        pack = history[last_consolidated:final_idx]
+        if not pack:
+            raise RuntimeError(
+                f"WG-19：整併包為空無法推進（cost={cost}，target={target}）。"
+            )
+
+        print(
+            f"（WG-19 規劃：final_idx={final_idx}，"
+            f"待整併 {len(pack)} 則；cost={cost}，target={target}。）"
+        )
+
+        # Phase B — 整包整併 + 推游標（一次 invoke）
+        existing = read_memory_md()
+        print(
+            f"（WG-19 整併：history[{last_consolidated}:{final_idx}]"
+            f" + MEMORY → memory/MEMORY.md。）"
+        )
+        _consolidate_pack(consolidation_llm, pack, existing)
+        last_consolidated = final_idx
+        # 回到 Phase A 重算（MEMORY 更新後 system 可能變長）
+
+
+# ---------------------------------------------------------------------------
+# 進入點（WG-12～19 合併主迴圈）
 # ---------------------------------------------------------------------------
 
 
@@ -512,8 +816,11 @@ def main() -> None:
     # WG-12～14：模型、system、工具
     llm = ChatOpenAI(model="gpt-5.4-mini", temperature=0.2)
     llm_tools = llm.bind_tools(TOOLS)
-    system_text = build_system_prompt()
-    print(f"（WG-17 TOKEN_BUDGET={get_token_budget()}，以字元長度模擬 token 成本。）")
+    consolidation_llm = ChatOpenAI(model="gpt-5.4-mini", temperature=0.2)
+    print(
+        f"（WG-17 TOKEN_BUDGET={get_token_budget()}，"
+        f"WG-19 整併目標 ≤ {get_token_budget() // 2} 字元；以字元長度模擬 token。）"
+    )
 
     while True:
         user_text = input("\n你：").strip()
@@ -523,17 +830,21 @@ def main() -> None:
         if not user_text:
             continue
 
-        # WG-17：append 前先裁切送模 past
         human_message = HumanMessage(content=user_text)
-        tail_len = len(history) - last_consolidated
-        past, last_consolidated = compute_past_for_turn(
-            history, last_consolidated, system_text, human_message
+
+        # WG-19：完成後 cost 已 <= target；直接組 system + past 進 ReAct
+        prev_consolidated = last_consolidated
+        last_consolidated = ensure_budget_before_react(
+            consolidation_llm, history, last_consolidated, human_message
         )
-        if len(past) < tail_len:
-            print(
-                f"（WG-17 送模裁切：history 共 {len(history)} 則，"
-                f"本輪 past {len(past)} 則；last_consolidated={last_consolidated}。）"
+        if last_consolidated != prev_consolidated:
+            if session_meta is None:
+                session_meta = _default_metadata()
+            session_meta = save_session_jsonl(
+                session_path, history, session_meta, last_consolidated
             )
+        system_text = build_system_prompt()
+        past = history[last_consolidated:]
 
         # WG-13：ReAct 一輪（送模含 system + past + 本輪 user）
         print("\n助手：", end="", flush=True)
