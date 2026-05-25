@@ -17,6 +17,7 @@
 ### 規格
 
 - **延續 WG-12** 之 `build_system_prompt()` 與 `history` 分離；`run_react_turn(llm_tools, system_text, history, user_text)` 在內部建立 `SystemMessage(content=system_text)`。
+- **自 WG-12 抽出 `get_identity() -> str`**：`build_system_prompt()` 改為 `return get_identity()`。`**get_identity()` 回傳字串**須含：（1）**課堂規則**（須含「**繁體中文**」）；（2）**【解題方式】**：可重複驗證的任務，優先 `write_file` 寫腳本再 `exec`（如 `uv run python 相對路徑`），避免只在對話口算或貼無法重跑的一次性指令；（3）**【依賴管理】**：本專案用 **uv**；新增 Python 依賴請在專案根 `exec uv add <套件名>`，勿用 `pip install`；（4）**【本場次顯示名稱】** 與 `nick`。格式對齊 `reference_agent.py`／`reference_agent2.py`。
 - 以 `@tool` 定義 `add_numbers(a: float, b: float) -> float`；**docstring** 須說明算術須呼叫工具、不可心算（對齊示範檔繁中文案）。
 - `TOOLS = [add_numbers]`；`_TOOL_BY_NAME = {t.name: t for t in TOOLS}`；`llm.bind_tools(TOOLS)` 取得 `llm_tools`。
 - **串流輔助 `_stream_model_response`**：`llm_tools.stream(messages)` 累積 chunk（`acc + chunk`），邊收邊 `print` 文字；以 `message_chunk_to_message(acc)` 轉成 `AIMessage`（保留 `tool_calls`）。
@@ -33,13 +34,29 @@
 - 使用者提出須用工具完成的算術時，終端可觀察到 `[工具 add_numbers]` 與實際工具執行。
 - 能指出：`bind_tools`、`_stream_model_response`、`run_react_turn` 內處理 `tool_calls` 的迴圈。
 - 能說明：含 `tool_calls` 的 `AIMessage`、`ToolMessage`、最終純文字 `AIMessage` 在串列中的順序。
+- 能說明：`get_identity()` 中 **【解題方式】**、**【依賴管理】** 各對應哪一段；`build_system_prompt()` 如何呼叫 `get_identity()`。
 - **邊界**：只做一次 `invoke`、不處理 `tool_calls` 時可能錯在哪裡。
 
 ### 藍本對應
 
-對齊 **`reference_agent.py`** 之 **WG-13** 段落（`add_numbers`、`_stream_model_response`、`_run_bound_tool`、`run_react_turn`）。
+對齊 **`reference_agent.py`** 之 **WG-13** 段落（`get_identity`、`add_numbers`、`_stream_model_response`、`_run_bound_tool`、`run_react_turn`）。
 
 ```python
+def get_identity() -> str:
+    """WG-13 自 build_system_prompt 抽出；含【解題方式】【依賴管理】。"""
+    system_text = (
+        "你是課堂程式助教，並請使用繁體中文。\n\n"
+        "【解題方式】可重複驗證的任務，優先 write_file 寫成腳本，再 exec 執行"
+        "（例如 uv run python 相對路徑）；避免只在對話中口算或貼無法重跑的一次性指令。\n\n"
+        "【依賴管理】本專案用 uv 管理套件；新增 Python 依賴請在專案根 exec "
+        "uv add <套件名>，不要用 pip install。"
+    )
+    nick = "法鬥超人"
+    return f"{system_text}\n\n【本場次顯示名稱】{nick}"
+
+def build_system_prompt() -> str:
+    return get_identity()
+
 @tool
 def add_numbers(a: float, b: float) -> float:
     """兩個數字相加並回傳和。純算術必須呼叫此工具，不可心算後直接回答。"""
@@ -72,7 +89,7 @@ def run_react_turn(llm_tools, system_text, history, user_text):
 
 核心觀念：**檔案操作走檔案工具，shell 指令才走 `exec`**。讀檔不用 `cat`、寫檔不用 `echo >`、改檔不用 `sed -i`。
 
-**Agent 使用 `exec` 時**：多行 Python 須 **write_file → `uv run python …`**；Windows PowerShell 勿用 `<<`／heredoc。工具 **docstring** 說明用途即可；跨平台編碼細節見下方 **`exec`** 規格。
+**Agent 使用 `exec` 時**：須遵守 **WG-13** `get_identity()` 之 **【解題方式】**（多行 Python：**write_file → `uv run python …`**）與 **【依賴管理】**（`uv add`，勿 `pip install`）。Windows PowerShell 勿用 `<<`／heredoc。工具 **docstring** 說明用途即可；跨平台編碼細節見下方 **`exec`** 規格。
 
 本題**不要求**自訂 `ToolRegistry`；`_TOOL_BY_NAME` 對照表供 `_run_bound_tool` 使用（與 **WG-13** 相同）。
 

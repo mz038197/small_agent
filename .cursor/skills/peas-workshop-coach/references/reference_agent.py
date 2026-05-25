@@ -5,7 +5,7 @@ Agent Workshop 標準程式（reference_agent.py）— peas-workshop-coach skill
 學生實作請改專案根 **`main.py`**，勿直接修改本檔。
 
 - WG-12：`build_system_prompt`、`SystemMessage` 與 `history` 分離（system 不進 JSONL）
-- WG-13：`@tool`、`bind_tools`、ReAct 內層迴圈、`ToolMessage`
+- WG-13：抽出 `get_identity`（【解題方式】【依賴管理】）、`@tool`、`bind_tools`、ReAct 內層迴圈、`ToolMessage`
 - WG-14：workspace 路徑解析、五支檔案／shell 工具 + `add_numbers`
 - WG-15～16：每輪後 `save_session_jsonl`；啟動時 `load_session_jsonl`（略過壞行）
 
@@ -33,6 +33,28 @@ from langchain_core.messages import (
 )
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
+
+# ---------------------------------------------------------------------------
+# WG-12：system prompt（WG-13 起自 build_system_prompt 抽出 get_identity）
+# ---------------------------------------------------------------------------
+
+
+def get_identity() -> str:
+    """WG-13 自 build_system_prompt 抽出；含【解題方式】【依賴管理】。"""
+    system_text = (
+        "你是課堂程式助教，並請使用繁體中文。\n\n"
+        "【解題方式】可重複驗證的任務，優先 write_file 寫成腳本，再 exec 執行"
+        "（例如 uv run python 相對路徑）；避免只在對話中口算或貼無法重跑的一次性指令。\n\n"
+        "【依賴管理】本專案用 uv 管理套件；新增 Python 依賴請在專案根 exec "
+        "uv add <套件名>，不要用 pip install。"
+    )
+    nick = "法鬥超人"
+    return f"{system_text}\n\n【本場次顯示名稱】{nick}"
+
+
+def build_system_prompt() -> str:
+    return get_identity()
+
 
 # ---------------------------------------------------------------------------
 # WG-13／WG-14：LangChain `@tool`（workspace 檔案／shell + 算術）
@@ -168,18 +190,6 @@ TOOLS = [
 ]
 
 _TOOL_BY_NAME: dict[str, Any] = {t.name: t for t in TOOLS}
-
-
-# ---------------------------------------------------------------------------
-# WG-12：system prompt
-# ---------------------------------------------------------------------------
-
-
-def build_system_prompt() -> str:
-    system_text = "你是課堂程式助教，並請使用繁體中文。"
-    nick = "法鬥超人"
-    return f"{system_text}\n\n【本場次顯示名稱】{nick}"
-
 
 # ---------------------------------------------------------------------------
 # WG-15～16：JSONL（第一行 metadata；不寫入 SystemMessage）
