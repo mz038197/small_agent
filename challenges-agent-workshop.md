@@ -36,9 +36,9 @@
 | 基礎 | **WG-12** | 人設寫進系統層——`SystemMessage` 與可變系統字串 | `**build_system_prompt()`**：課堂規則＋【本場次顯示名稱】；`**run_react_turn**` 內組 `**SystemMessage**`；`**system_text**`／`**history**` 分離（system 不進 JSONL）。 | 4、5 |
 | 基礎 | **WG-13** | 會查表才算真 Agent——工具與 ReAct（單檔） | `**add_numbers**`、`@tool`、`bind_tools`、`**_stream_model_response**`、`**run_react_turn**`（多段 `**stream**` → `**message_chunk_to_message**`）；`**ToolMessage**`；本題不要求 JSONL。 | 3、4、5 |
 | 基礎 | **WG-14** | 讓 Agent 有手有腳——`exec` 與檔案的 **`@tool` 最小組** | 在 **WG-13** 之 `**TOOLS**` 上追加五支檔案／shell 工具；`**resolve_workspace_path**`；`**exec**` UTF-8 子程序輸出；`**_TOOL_BY_NAME**`／`**_run_bound_tool**`。 | 4、5、6、7 |
-| 基礎 | **WG-15** | 對話落盤、人設不留痕——JSONL 先寫檔 | `**save_session_jsonl**`、`**_serialize_tool_calls**`；預設 `**session_wiki_wg.jsonl**`；啟動**不**讀舊檔；**不**寫 system。 | 5、6 |
-| 基礎 | **WG-16** | 冷啟動撿回昨日脈絡——JSONL 載回 | `**load_session_jsonl**`、`**_row_to_message**`；啟動還原 `**history**`／`**session_meta**`；壞行略過；關閉再開可接續。 | 6 |
-| 進階 | **WG-17** | 視窗太窄先裁舊帳——字元預算與整併邊界 | `estimate_message_tokens`、`pick_consolidation_boundary`、`last_consolidated`；超線裁切 `**past`**；成本含 `**ToolMessage**`（與 **WG-13**／**WG-14** 銜接）。 | 3、4、5 |
+| 基礎 | **WG-15** | 對話落盤、人設不留痕——JSONL 先寫檔 | `**save_session_jsonl**`、`**_serialize_tool_calls**`；預設 `**session_wiki_wg.jsonl**`；格式對照專案根 `**session.jsonl.example**`；啟動**不**讀舊檔；**不**寫 system。 | 5、6 |
+| 基礎 | **WG-16** | 冷啟動撿回昨日脈絡——JSONL 載回 | `**load_session_jsonl**`、`**_row_to_message**`；啟動還原 `**history**`／`**session_meta**`；須還原 `**session.jsonl.example**` 同構 **ReAct** 鏈；壞行略過；關閉再開可接續。 | 6 |
+| 進階 | **WG-17** | 視窗太窄先裁舊帳——字元預算與整併邊界 | `get_token_budget`、`estimate_message_tokens`、`pick_consolidation_boundary`、`last_consolidated`；超線裁切 `**past`**；成本含 `**ToolMessage**`（與 **WG-13**／**WG-14** 銜接）。 | 3、4、5 |
 | 進階 | **WG-18** | 送模前先洗對話簿——transcript 修復與工具輸出預算 | 實作 `messages_for_model` 管線（孤兒 tool 清理、缺洞補齊、tool 截斷、舊 tool 摘要、全對話字元預算）。 | 4、5、6 |
 | 進階 | **WG-19** | 舊對話濃縮成長期備忘——整併與每輪讀回組裝 | `memory/MEMORY.md`（精簡備忘，非對話抄寫）、`HISTORY.md`；超線時 **consolidation** `invoke`；`## Long-term Memory` 併入 **system**；送主模型前壓至 **≤ TOKEN_BUDGET//2**。 | 5、6 |
 | 進階 | **WG-20** | 技能卡進工具箱——最小 SkillsLoader 與 system prompt 注入 | `skills/<name>/SKILL.md`、frontmatter 摘要、workspace／builtin 合併、同名覆蓋；`**build_system_prompt(loader)`** 依序：**課堂基底**（`**get_identity()`**）→ **長期記憶**（若有）→ `**# Active Skills`**（`always` 正文）→ `**# Skills**`（繁中引導＋摘要）；大段間 `**---**`；並**銜接 WG-13／WG-14**：各 **`BaseTool`** 之輸入 **JSON Schema**（或等價 `parameters`）、`**cast_params`／`validate_params**`、在 **`invoke` 實作前** 的 **`prepare_tool_call`**（或等價流程，**不**要求自訂 `Tool`／`ToolRegistry` 類別）。 | 4、5、6 |
@@ -778,7 +778,7 @@ _TOOL_BY_NAME = {t.name: t for t in TOOLS}
 
 ### 情境
 
-**WG-12～14** 已以 `**build_system_prompt()`** 與 `**run_react_turn**` 維持 **ReAct** 對話；關程式後 **RAM** 仍清空。本題在**沿用相同主迴圈**的前提下**只做寫檔**：每輪 `**history.extend(turn_messages)**` 後呼叫 `**save_session_jsonl**`，把 `**session_meta**` 與完整 `**history**`（含 `**tool_calls**`／`**ToolMessage**`）**整檔覆寫**到 JSONL（**第一行** `**metadata**`）。
+**WG-12～14** 已以 `**build_system_prompt()`** 與 `**run_react_turn**` 維持 **ReAct** 對話；關程式後 **RAM** 仍清空。本題在**沿用相同主迴圈**的前提下**只做寫檔**：每輪 `**history.extend(turn_messages)**` 後呼叫 `**save_session_jsonl**`，把 `**session_meta**` 與完整 `**history**`（含 `**tool_calls**`／`**ToolMessage**`）**整檔覆寫**到 JSONL（**第一行** `**metadata**`）。檔案長相可參考專案根 **`session.jsonl.example`**（含一般對話與 **ReAct** 一輪完整鏈）。
 
 規格與函式簽名以專案根 **`wiki_wg_workshop.py`**（**WG-15～16** 段落）為準。
 
@@ -787,11 +787,11 @@ _TOOL_BY_NAME = {t.name: t for t in TOOLS}
 ### 規格
 
 - 延續 **WG-07～14**：`load_dotenv`、金鑰早退、`**build_system_prompt()`**、`**run_react_turn(llm_tools, system_text, history, user_text)**`、`**llm.bind_tools(TOOLS)**`（`**TOOLS**` 含 **WG-13** `**add_numbers**` 與 **WG-14** 五支工具，對齊示範檔）。
-- **存檔路徑**：`**os.getenv("SESSION_JSONL_PATH", "session_wiki_wg.jsonl")**`（示範檔預設；可覆寫）。
+- **存檔路徑**：`**os.getenv("SESSION_JSONL_PATH", "session_wiki_wg.jsonl")**`（示範檔預設；可覆寫）。`**session.jsonl.example**` 僅供對照格式，**勿**當預設寫入目標。
 - **啟動（WG-15 獨立）**：`**history = []**`、`**session_meta = None**`；**禁止**呼叫 `**load_session_jsonl**`。
 - **寫檔時機**：每輪 `**run_react_turn**` 結束、`**history.extend(turn_messages)**` 之後。
 - **輔助函式**（對齊示範檔）：
-  - `**_default_metadata(created_at=None)**`：第一行 metadata；含 `**last_consolidated: 0**`（供 **WG-17** 預留）。
+  - `**_default_metadata(created_at=None)**`：第一行 metadata（與 `**session.jsonl.example**` 欄位對齊）；含 `**last_consolidated: 0**`（供 **WG-17** 預留）。
   - `**_serialize_tool_calls(tc)**`：將 `**tool_calls**` 正規化為 `**{name, args, id}**` 陣列再寫入 JSONL。
   - `**_message_to_jsonl_line(m)**`：`**HumanMessage`／`AIMessage`（含 tool_calls）／`ToolMessage**` → 一行 JSON；`**ToolMessage**` 可選寫 `**name**`。
   - `**save_session_jsonl(path, messages, existing_meta, last_consolidated) -> dict**`：整檔覆寫；更新 `**updated_at**`；保留 `**created_at**`（若 `**existing_meta**` 有）。
@@ -806,7 +806,7 @@ _TOOL_BY_NAME = {t.name: t for t in TOOLS}
 
 ### 藍本對應
 
-對齊 **`wiki_wg_workshop.py`**：`_default_metadata`、`_serialize_tool_calls`、`_message_to_jsonl_line`、`**save_session_jsonl**`（約第 190～321 行）；`**main()`** 寫檔段落（約第 441～446 行）。**WG-15 獨立**時省略啟動的 `**load_session_jsonl**` 呼叫。
+對齊 **`wiki_wg_workshop.py`**：`_default_metadata`、`_serialize_tool_calls`、`_message_to_jsonl_line`、`**save_session_jsonl**`（約第 190～321 行）；`**main()`** 寫檔段落（約第 441～446 行）。JSONL 列格式另對照專案根 **`session.jsonl.example`**。**WG-15 獨立**時省略啟動的 `**load_session_jsonl**` 呼叫。
 
 
 ---
@@ -815,7 +815,7 @@ _TOOL_BY_NAME = {t.name: t for t in TOOLS}
 
 ### 情境
 
-**WG-15** 已會寫入完整 **ReAct** 鏈。本題加上**啟動讀檔**：`**load_session_jsonl**` 還原 `**history**` 與 `**session_meta**`，使**關閉再開**可接續。讀取時壞行略過（`**json.JSONDecodeError**`）。
+**WG-15** 已會寫入完整 **ReAct** 鏈。本題加上**啟動讀檔**：`**load_session_jsonl**` 還原 `**history**` 與 `**session_meta**`，使**關閉再開**可接續。讀取時壞行略過（`**json.JSONDecodeError**`）。載入後須能還原 **`session.jsonl.example`** 同構之 `**tool_calls**`／`**tool**` 鏈。
 
 合併示範檔 **`wiki_wg_workshop.py`** 已實作 **WG-12～16** 完整閉環。
 
@@ -851,7 +851,7 @@ last_consolidated = int(session_meta.get("last_consolidated", 0) or 0)
 session_meta = save_session_jsonl(session_path, history, session_meta, last_consolidated)
 ```
 
-JSONL 輔助函式見示範檔第 190～321 行；ReAct 見第 324～393 行；`**main()`** 見第 408～446 行。
+JSONL 輔助函式見示範檔第 190～321 行；ReAct 見第 324～393 行；`**main()`** 見第 408～446 行。JSONL 列格式與 **ReAct** 載回驗收可對照專案根 **`session.jsonl.example`**。
 
 
 ---
@@ -876,23 +876,24 @@ JSONL 輔助函式見示範檔第 190～321 行；ReAct 見第 324～393 行；`
   - 先定義 `**estimate_message_tokens(message: BaseMessage) -> int`**（本題即 `**len(message.content)**` 當 `**content` 為 `str**`；否則課堂自訂規則），`**cost` 與 `pick_consolidation_boundary` 必須共用**此定義。
   - `**cost = len(system_str) + sum(estimate_message_tokens(m) for m in msgs)`**。
   其中 `**system_str**` 與本輪送模用 system 字串一致（**WG-12～18** 可為 `**build_system_prompt()`**；**WG-19** 起併入長期記憶；**WG-20** 起改 `**build_system_prompt(loader)**`）；`**msgs**` 為 `***past0`（或裁切後的 `past`）與本輪 `human_message**` 之**所有**訊息（**含** `**ToolMessage`**；本題 `**estimate_message_tokens**` 以 `**content` 字串長度**為主，**選修**：對 `**tool_calls`** 另加權）。
-- **常數 `TOKEN_BUDGET`**：正整數（檔案頂部常數即可；**選修**改為 `**int(os.getenv("TOKEN_BUDGET", "8000"))`** 等，無效時需有預設）。
+- **`get_token_budget() -> int`**：讀取環境變數 `**TOKEN_BUDGET**`（預設 `**8000**`）；無效或非正整數時回退預設。判斷是否超線、換算 `**tokens_to_remove**` 時皆呼叫此函式（或等價實作），**勿**在多處重複解析 env。
 - **先判斷再裁切**：
   - 先令 `**past0 = history[last_consolidated:]`**，再算 `**cost**`（`**System` 字串** + `**past0`** + **本輪 `human_message`**），公式同前 `**len` 加總**。
-  - 若 `**cost <= TOKEN_BUDGET`**：令 `**tokens_to_remove = 0**`（或不呼叫整併），`**past = past0**`，直接組 `**context_messages**`（見下「送模串列」）。
-  - 若 `**cost > TOKEN_BUDGET**`：令 `**tokens_to_remove = max(0, cost - TOKEN_BUDGET // 2)**`（**整數**；目標是把「送模側」壓到約 `**TOKEN_BUDGET // 2`** 留給助手輸出概念）。再呼叫 `**pick_consolidation_boundary(history, last_consolidated, tokens_to_remove)**`（或等價自由函式）決定 `**past**`。
-- **裁切流程**（`**pick_consolidation_boundary`**，僅在 `**cost > TOKEN_BUDGET**` 且 `**tokens_to_remove > 0**` 時必須執行；邏輯須與下列一致）：
+  - 令 `**budget = get_token_budget()**`。
+  - 若 `**cost <= budget`**：令 `**tokens_to_remove = 0**`（或不呼叫整併），`**past = past0**`，直接組 `**context_messages**`（見下「送模串列」）。
+  - 若 `**cost > budget**`：令 `**tokens_to_remove = max(0, cost - budget // 2)**`（**整數**；目標是把「送模側」壓到約 `**budget // 2`** 留給助手輸出概念）。再呼叫 `**pick_consolidation_boundary(history, last_consolidated, tokens_to_remove)**`（或等價自由函式）決定 `**past**`。
+- **裁切流程**（`**pick_consolidation_boundary`**，僅在 `**cost > budget**` 且 `**tokens_to_remove > 0**` 時必須執行；邏輯須與下列一致）：
   - `**start = last_consolidated**`。若 `**start >= len(history)**` 或 `**tokens_to_remove <= 0**`，回傳 `**None**`。
   - 自 `**start**` 以 `**for idx in range(start, len(history)):**` 走訪；維護 `**removed_tokens**` 與 `**last_boundary: tuple[int, int] | None**`。每一則迭代須與你貼的程式**同序**：先依 `**idx > start`** 且該則為**使用者**更新 `**last_boundary`** 並視情況 `**return**`，再執行 `**removed_tokens += estimate_message_tokens(message)**`（定義見上）。
   - **邊界判定**：當 `**idx > start`** 且 `**history[idx]**` 為**使用者訊息**（課堂即 `**isinstance(..., HumanMessage)`**，對齊 `**message.get("role") == "user"**`），令 `**last_boundary = (idx, removed_tokens)**`；若此時 `**removed_tokens >= tokens_to_remove**`，**立即** `**return last_boundary`**。
   - 迴圈結束若從未達標，**回傳最後一次**的 `**last_boundary`**（可為 `**None**`，表示無可用邊界）。
-  - `**TOKEN_BUDGET**`：判斷「是否超線、要不要整併」；`**TOKEN_BUDGET // 2**`：換算成本輪要試著削掉的 `**tokens_to_remove**` 目標。**JSONL** 與 `**history`** 仍保存**完整**紀錄；僅送模用的 `**past`** 依 `**idx**` 切片。
+  - `**budget**`（`**get_token_budget()**`）：判斷「是否超線、要不要整併」；`**budget // 2**`：換算成本輪要試著削掉的 `**tokens_to_remove**` 目標。**JSONL** 與 `**history`** 仍保存**完整**紀錄；僅送模用的 `**past`** 依 `**idx**` 切片。
 - **本輪 `human_message` 必留**：送進 `**llm.stream(context_messages)`** 的 `**context_messages**` 串列**必須**含本則使用者訊息，**不可**因裁切被移除。
 - **送模串列**：每輪組 `**context_messages = [system_message, *past, human_message]`**（`**past**` 依上一節），再呼叫 `**llm.stream(context_messages)**`。若本題併 **WG-13**，工具判斷與工具執行使用 **ReAct** 多段 `**stream`**，每段串流後累積成 `**AIMessage**`，且 `**history**` 於該輪 `**append**` 之順序須符合工具協議。回合結束後將本輪產生之訊息依序 `**append` 進 `history**`（純串流時為 **Human＋AI**；**ReAct** 時另含 `**ToolMessage`** 等），並呼叫 `**save_session_jsonl(session_path, history, ...)**`（`**system**` 不在 `**history**`，**不**寫進檔）。
 
 ### 驗收條件
 
-- **預算夠**（`**cost <= TOKEN_BUDGET`**）：不進入整併、或 `**pick_consolidation_boundary**` 因 `**tokens_to_remove <= 0**` 回 `**None**` 時，`**past**` 須與 `**history[last_consolidated:]**` 一致，模型讀到的舊對話範圍與「未整併」相同。
+- **預算夠**（`**cost <= budget**`，`**budget = get_token_budget()**`）：不進入整併、或 `**pick_consolidation_boundary**` 因 `**tokens_to_remove <= 0**` 回 `**None**` 時，`**past**` 須與 `**history[last_consolidated:]**` 一致，模型讀到的舊對話範圍與「未整併」相同。
 - **預算不夠**：`**past`** 的起點索引必須落在 `**HumanMessage**`（與 `**idx > start` 且為 user** 之邊界語意一致），**不可**從 `**AIMessage`** 中間切開當作起點。
 - `**removed_tokens**` 的累加順序與 `**estimate_message_tokens**` 定義，須與 `**pick_consolidation_boundary**` 行為一致；能接受「掃完仍 `**removed_tokens < tokens_to_remove**`」時回傳**最後一個** `**last_boundary`** 的設計。
 - 本輪 `**HumanMessage**` 始終出現在 `**context_messages**`（`**llm.stream**` 的引數）中。
@@ -901,12 +902,18 @@ JSONL 輔助函式見示範檔第 190～321 行；ReAct 見第 324～393 行；`
 
 ### 藍本對應
 
-以下為**結構示意**（**非**完整可執行檔）；請在 **WG-12** 藍本上分離 `**history`** 與 `**last_consolidated**`，實作 `**estimate_message_tokens**` 與 `**pick_consolidation_boundary**`，並在 `**while**` 內每輪於 `**append` 進 `history` 之前**完成裁切與 `**stream`**。
+以下為**結構示意**（**非**完整可執行檔）；請在 **WG-12** 藍本上分離 `**history`** 與 `**last_consolidated**`，實作 `**get_token_budget**`、`**estimate_message_tokens**` 與 `**pick_consolidation_boundary**`，並在 `**while**` 內每輪於 `**append` 進 `history` 之前**完成裁切與 `**stream`**。
 
 ```python
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 
-TOKEN_BUDGET = 8000  # 或 int(os.getenv("TOKEN_BUDGET", "8000")), ...
+def get_token_budget() -> int:
+    raw = os.getenv("TOKEN_BUDGET", "8000")
+    try:
+        n = int(raw)
+        return n if n > 0 else 8000
+    except ValueError:
+        return 8000
 
 def estimate_message_tokens(message: BaseMessage) -> int:
     c = message.content
@@ -946,10 +953,11 @@ def message_cost(msgs: list[BaseMessage]) -> int:
 
 past0 = history[last_consolidated:]
 cost = len(system_str) + message_cost([*past0, human_message])
-if cost <= TOKEN_BUDGET:
+budget = get_token_budget()
+if cost <= budget:
     past = past0
 else:
-    tokens_to_remove = max(0, cost - TOKEN_BUDGET // 2)
+    tokens_to_remove = max(0, cost - budget // 2)
     boundary = pick_consolidation_boundary(history, last_consolidated, tokens_to_remove)
     past = history[boundary[0] :] if boundary is not None else past0
 
