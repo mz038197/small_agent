@@ -48,7 +48,7 @@
 | **WG-17** | 視窗太窄先裁舊帳——字元預算與整併邊界                         | `estimate_message_tokens`、`pick_consolidation_boundary`、`last_consolidated`；超線裁切 `**past`**；成本含 `**ToolMessage**`（與 **WG-13**／**WG-14** 銜接）。                                                                                                                                                                                                         | 3、4、5               |
 | **WG-18** | 送模前先洗對話簿——transcript 修復                         | 參考 `nanobot.agent.runner`：`messages_for_model`（LangChain `BaseMessage`）——孤兒 `ToolMessage` 清理、缺 tool 回覆補洞；完整 `history` 與送模副本分離（字元預算見 **WG-17**、整併見 **WG-19**）。                                                                                                                                                                 | 4、5、6               |
 | **WG-19** | 舊對話濃縮成長期備忘——整併與每輪讀回組裝                       | `memory/MEMORY.md`、`HISTORY.md`；**先規劃** `final_idx`（`cost ≤ TOKEN_BUDGET//2`）**再一次** consolidation 整包 `[last_consolidated:final_idx]`＋既有 MEMORY；`## Long-term Memory` 併入 **system**；`**ensure_budget_before_react**` 達標才 return，`**main()`** 不再重驗 cost。                                                                                                                                                                                                          | 5、6                 |
-| **WG-20** | 技能卡進工具箱——最小 SkillsLoader 與 system prompt 注入 | `skills/<name>/SKILL.md`、frontmatter 摘要、workspace／builtin 合併、同名覆蓋；`**build_system_prompt(loader)`** 依序：**課堂基底**（`**get_identity()`**）→ **長期記憶**（若有）→ `**# Active Skills`**（`always` 正文）→ `**# Skills**`（繁中引導＋摘要）；大段間 `**---**`；並**銜接 WG-13／WG-14**：各 **`BaseTool`** 之輸入 **JSON Schema**（或等價 `parameters`）、`**cast_params`／`validate_params**`、在 **`invoke` 實作前** 的 **`prepare_tool_call`**（或等價流程，**不**要求自訂 `Tool`／`ToolRegistry` 類別）。 | 4、5、6               |
+| **WG-20** | 技能卡進工具箱——最小 SkillsLoader 與 system prompt 注入 | 模組級 `**SKILLS_LOADER**`（對齊 **WG-14** `**WORKSPACE**`）；`skills/<name>/SKILL.md`、frontmatter 摘要、workspace／builtin 合併、同名覆蓋；`**build_system_prompt()`**（簽名不變）內併 Skills，依序：**課堂基底** → **長期記憶**（若有）→ `**# Active Skills**` → `**# Skills**`；大段間 `**---**`。ReAct 工具仍依 **WG-13**／**WG-14** 之 `**BaseTool.invoke**`。 | 4、5、6               |
 | **WG-21** | 眼睛也進對話——多模態附圖、`image_path` 與 JSONL 載回閉環 | JSONL 之 `**user**` 列僅存 **`image_path`**／`**media_type**`（**不**存長 base64）；冷啟動載入 `**history**` 為**純文字占位**；**送模層** `**messages_for_model**`：**僅本輪**可含 data URL 圖區塊、**歷史**舊附圖不得重送；`**open(..., "rb")**`／base64 僅在本輪組圖時使用；須使用支援 **vision** 之模型。 | 4、5、6               |
 
 
@@ -660,7 +660,7 @@ if __name__ == "__main__":
 - 延續 **WG-07～11**：`def main()`、`load_dotenv`、無金鑰則印提示後 `**return`**；有金鑰時 `**ChatOpenAI**`、`**while True**`、`input()`、結束指令、空白行 `**continue**`。
 - 在進入 `**while**` 之前：實作 `**def get_identity() -> str**`，並建立 `**system_message = SystemMessage(content=get_identity())**`；`**history: list[BaseMessage] = []**`（啟動時**不**從檔案載入）。
 - `**get_identity()` 回傳字串**須含（1）**課堂規則**（`**system_text`**，須含「**繁體中文**」）；（2）**顯示名稱**（`**nick`**）；（3）**【執行環境】**：`**platform.system()`** 與 `**os.name**` 動態寫入，並附與該 OS 相容的 exec 提示；（4）**【exec 注意】**：依【執行環境】選 shell；Python 先 **write_file** 再 **exec** `uv run python 相對路徑`。**本函式不要求**併入 **WG-13** 工具細則。
-- **合併工作坊（WG-20 起）**：`**build_system_prompt(loader)**` 直接呼叫 `**get_identity()`** 作為課堂基底，**勿**再包別名函式。WG-13 工具約束可改由 tool **docstring** 補足。
+- **合併工作坊（WG-20 起）**：`**build_system_prompt()`** 直接呼叫 `**get_identity()`** 作為課堂基底，並透過模組級 `**SkillsLoader**` 併入 Skills，**勿**再包別名函式、**勿**改為 `**build_system_prompt(loader)`** 簽名。WG-13 工具約束可改由 tool **docstring** 補足。
 - 每一輪有效使用者輸入：送進模型處與 **WG-11** 同一精神——**先組本輪 `context_messages`、串流成功後才把本輪 Human／AI 寫回累積**。建議命名：`**human_message = HumanMessage(...)`** → `**context_messages = [system_message, *history, human_message]**` → `**llm.stream(context_messages)**` → `**history.append(human_message)**`、`**history.append(AIMessage(...))**`。**不要**把 `**system`** 與 `**history**` 硬併成「迴圈內一路 `**append**` 的單一串列」。
 - **禁止**：把 `**SystemMessage`** 當成一般對話列 `**append` 進 `history**`；**本題不要求**實作 `**save_session_jsonl`**／讀檔（留給 **WG-15**／**WG-16**）。
 - **不要求**：改 **metadata** 或 **JSONL** 欄位（尚無檔案格式）。
@@ -789,7 +789,7 @@ TOOLS = [add_numbers]
 
 核心觀念只有一句：**檔案操作走檔案工具，shell 指令才走 `exec`**。也就是說，讀檔不用 `cat`、寫檔不用 `echo >`、改檔不用 `sed -i`；`exec` 留給 `python --version`、`uv run pytest`、執行示範檔這類外部指令。
 
-**Agent 使用 `exec` 時**：先讀 **WG-12** 的 **【執行環境】**（`platform.system()` 動態產生），再下相容的單行指令；多行 Python 須 **write_file → `uv run python …`**。**【執行環境】**與**【exec 注意】**皆在 `get_identity()`（**WG-20** 起經 `build_system_prompt(loader)` 併入送模字串）。
+**Agent 使用 `exec` 時**：先讀 **WG-12** 的 **【執行環境】**（`platform.system()` 動態產生），再下相容的單行指令；多行 Python 須 **write_file → `uv run python …`**。**【執行環境】**與**【exec 注意】**皆在 `get_identity()`（**WG-20** 起仍經 `build_system_prompt()` 併入送模字串）。
 
 本題**不要求**自訂 `Tool` dataclass 或 `ToolRegistry` 類別；**選讀**：可將 **`TOOLS`** 傳入 **`llm.bind_tools(TOOLS)`** 做端到端驗收；若課堂拆步，亦可先用 **`BaseTool.invoke`**（或等價）做**手動**流程驗收。
 
@@ -1477,7 +1477,7 @@ if __name__ == "__main__":
 - **簡化成本**（本題自訂，**不**代表真實 **token**）：
   - 先定義 `**estimate_message_tokens(message: BaseMessage) -> int`**（本題即 `**len(message.content)**` 當 `**content` 為 `str**`；否則課堂自訂規則），`**cost` 與 `pick_consolidation_boundary` 必須共用**此定義。
   - `**cost = len(system_str) + sum(estimate_message_tokens(m) for m in msgs)`**。
-  其中 `**system_str**` 與本輪 `**SystemMessage.content**` 一致（**WG-12～18** 可為 `**build_system_prompt()`**；**WG-19** 起同一函式內併入 `**get_identity()`** 與長期記憶；**WG-20** 起改 `**build_system_prompt(loader)**`）；`**msgs**` 為 `***past0`（或裁切後的 `past`）與本輪 `human_message**` 之**所有**訊息（**含** `**ToolMessage`**；本題 `**estimate_message_tokens**` 以 `**content` 字串長度**為主，**選修**：對 `**tool_calls`** 另加權）。
+  其中 `**system_str**` 與本輪 `**SystemMessage.content**` 一致（**WG-12～18** 可為 `**build_system_prompt()`**；**WG-19** 起同一函式內併入 `**get_identity()`** 與長期記憶；**WG-20** 起同一 `**build_system_prompt()`** 另併 **Skills**，仍**無參數**）；`**msgs**` 為 `***past0`（或裁切後的 `past`）與本輪 `human_message**` 之**所有**訊息（**含** `**ToolMessage`**；本題 `**estimate_message_tokens**` 以 `**content` 字串長度**為主，**選修**：對 `**tool_calls`** 另加權）。
 - **常數 `TOKEN_BUDGET`**：正整數（檔案頂部常數即可；**選修**改為 `**int(os.getenv("TOKEN_BUDGET", "8000"))`** 等，無效時需有預設）。
 - **先判斷再裁切**：
   - 先令 `**past0 = history[last_consolidated:]`**，再算 `**cost**`（`**System` 字串** + `**past0`** + **本輪 `human_message`**），公式同前 `**len` 加總**。
@@ -1659,7 +1659,7 @@ def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
 - **對外入口**：`**main()`**、成本估算、`**run_react_turn**` 仍只呼叫 `**build_system_prompt() -> str**`（**WG-19** 無 **Skills** 時為無參數版），**不得**改以 `**get_identity()`** 取代送模 system。
 - **WG-19 重構**：抽出 `**get_identity() -> str**`；`**build_system_prompt()`** 內依序拼接 `**get_identity()**` 與 `**memory_block_for_system()**`（若有）。
 - **每次**送主模型前，上述 `**build_system_prompt()`** 回傳之 system 字串（**僅含 WG-12～WG-19**、尚未併 **Skills** 時）至少包含：（1）`**get_identity()`** 之課堂基底；（2）自 `**MEMORY.md`** 讀出、以固定標題 `**## Long-term Memory**` 包起來的區塊（可經 `**memory_block_for_system()`** 組裝）。**長期記憶須緊接在課堂人設之後**，且仍只出現在 `**SystemMessage.content`** 內（**不得**改放成 **user／assistant／tool** 對話列），與 **Challenge A** 語意一致。
-- **併入 WG-20（Skills）時**：`**build_system_prompt(loader)`** 仍為**唯一**送模組裝入口；**大段順序**為：**課堂基底**（`**get_identity()`**）→ **長期記憶**（若有）→ `**# Active Skills**` → `**# Skills**`（細節同 **WG-20** 規格）。
+- **併入 WG-20（Skills）時**：`**build_system_prompt()`** 仍為**唯一**送模組裝入口（**簽名不變**）；函式內透過模組級 `**SkillsLoader**` 併入 Skills。**`ensure_budget_before_react`** 與 **`main()`** 皆只呼叫此函式。**大段順序**為：**課堂基底**（`**get_identity()`**）→ **長期記憶**（若有）→ `**# Active Skills**` → `**# Skills**`（細節同 **WG-20** 規格）。
 - `**history`（或裁切後之 `past`）** 僅含 `**last_consolidated` 之後**、**尚未經整併移出視窗**之短期內容；**不得**把已整併走之舊段再當「新訊息」重送一遍。
 - `**MEMORY.md` 為空或僅空白**：不得出現**孤立**之 `**## Long-term Memory`** 標題；與「完全不注入記憶區塊」擇一、**全專案一致**。
 - **讀回不截斷**：`**memory_block_for_system()`** 讀取 `**MEMORY.md**` 時**全文**併入 system；**不得**在讀回階段靜默截斷。若 MEMORY 過長導致超標，由 **WG-19 整併**或調整 `**TOKEN_BUDGET**` 處理。
@@ -1697,7 +1697,7 @@ def memory_block_for_system() -> str:
     ...
 
 def build_system_prompt() -> str:
-    """WG-12～19 送模 system 唯一入口（WG-20 起改 build_system_prompt(loader)）。"""
+    """WG-12～20 送模 system 唯一入口（WG-20 於函式內讀模組級 SkillsLoader）。"""
     parts = [get_identity()]
     mem = memory_block_for_system()
     if mem:
@@ -1723,13 +1723,16 @@ def build_system_prompt() -> str:
 
 本題只做「最小可理解架構」：掃目錄、讀檔、取 frontmatter、合併 workspace／builtin、組出 system prompt。**不要求**真的讓 LLM 自動選 skill，也不要求實作 MCP、自訂 **`Tool`／`ToolRegistry` 類別**、sandbox 權限或背景 Dream agent。
 
+**ReAct 工具（延續 WG-13／WG-14）**：維持 `**_run_bound_tool**` → `**BaseTool.invoke**`；模型 `**tool_calls**` 之參數 cast／schema 驗證交給 LangChain `**@tool**`／Pydantic，**本題不要求**另實作 `**prepare_tool_call**` 或 `**cast_params**`／`**validate_params**`。
+
 ### 規格
 
 #### 檔案結構
 
-- 在專案根建立兩個 skill 根目錄（可依教師指定簡化為只做一個）：
+- 在專案根須有兩個 skill **根目錄**（可依教師指定簡化為只做一個）：
   - `**skills/`**：使用者或學生自訂 skill。
-  - `**builtin_skills/`**：教師提供的內建 skill 範例。
+  - `**builtin_skills/`**：教師提供的內建 skill 範例（口頭常稱 builtin／內建 skills）。
+- **執行時自動建立根目錄**：`**SkillsLoader.__init__**` 內若上述根目錄尚不存在，須以 `**mkdir(parents=True, exist_ok=True)**` 建立**空資料夾**（對齊 **WG-14** `write_file` 慣例）。模組級 `**SKILLS_LOADER = SkillsLoader(WORKSPACE)**` 建立時即生效，學生完成本題後執行程式，左側檔案樹應先看到 `**skills/**` 與 `**builtin_skills/**`。**不**自動建立各 skill 子資料夾或 `**SKILL.md**`（仍由學生或教師範本手動新增）。
 - 每個 skill 是一個資料夾，底下必須有 `**SKILL.md**`：
 
 ```text
@@ -1760,7 +1763,7 @@ always: false
 
 - 建議定義一個小資料結構（`dataclass` 或 dict 皆可）保存：
   - `name`
-  - `path`
+  - `path`：**相對 workspace 根目錄**之路徑字串（POSIX `/`，例如 `skills/class-helper/SKILL.md`、`builtin_skills/summarize/SKILL.md`）；供摘要列與 **WG-14** `read_file` 使用，**不得**存絕對路徑
   - `source`（`"workspace"` 或 `"builtin"`）
   - `description`
   - `always`
@@ -1775,8 +1778,10 @@ always: false
 #### `SkillsLoader`
 
 - 實作一個 `**SkillsLoader`** 類別或同等函式群：
-  - 初始化接收 `workspace: Path` 與 `builtin_skills_dir: Path`。
-  - `workspace_skills = workspace / "skills"`。
+  - 初始化僅接收 `workspace: Path`；`**workspace**` 須與 **WG-14** 之 `**WORKSPACE**`（專案根）一致，並 `**resolve()**` 後保存。
+  - 在 loader **內部**固定：`workspace_skills = workspace / "skills"`、`**builtin_skills = workspace / "builtin_skills"**`（**不**由呼叫端傳第二個路徑參數）。
+  - **初始化時**對 `**workspace_skills**`、`**builtin_skills**` 各呼叫 `**mkdir(parents=True, exist_ok=True)**`，確保兩根目錄存在（見上節「執行時自動建立根目錄」）。
+  - 掃描時將各 `**SKILL.md**` 轉成相對 `**workspace**` 之路徑字串寫入 `**SkillEntry.path**`（見藍本 `**_skill_path_for_read**`）。
   - `list_skills()` 掃描兩個根目錄底下的第一層資料夾，只收有 `**SKILL.md`** 的項目。
   - 先列 workspace skills，再列 builtin skills。
   - 若 workspace 與 builtin 有同名 skill，**workspace 版本優先**，builtin 同名版本不列入。
@@ -1785,12 +1790,21 @@ always: false
   - 先找 `skills/<name>/SKILL.md`，再找 `builtin_skills/<name>/SKILL.md`。
   - 找不到則回傳 `None` 或拋出清楚錯誤（擇一，但驗收時須能說明）。
 
+#### 模組級 `SkillsLoader` 與 `build_system_prompt`
+
+- 在模組層（與 **WG-14** `**WORKSPACE**` 同區，或緊接其後）建立 **單一** `**SkillsLoader**` 實例，例如：
+  - `**SKILLS_LOADER = SkillsLoader(WORKSPACE)**`；或
+  - `**get_skills_loader() -> SkillsLoader**`（lazy init，首次呼叫時建立）。
+- `**main()`** 進入 `**while True**` 前須已可取得 loader；**勿**每輪使用者輸入都 `new SkillsLoader`。
+- **延續 WG-19**：`**build_system_prompt() -> str**` **簽名不變**；`**ensure_budget_before_react**`、`**main()`**、成本估算仍只呼叫此函式。函式內以模組級 loader 呼叫 `**list_skills()**` 併入 **Skills**。
+
 #### system prompt 組裝
 
 - 實作 `**build_skills_summary(entries)`**：
   - 對每個非 `always` skill 產生一行摘要，格式可自訂，但須含 **skill 名稱、description、SKILL.md 路徑**。
+  - 摘要列中的路徑須直接使用 `**SkillEntry.path**`（**相對 workspace、POSIX**）；模型依 **# Skills** 引導以 **WG-14** `**read_file(path=...)**` 讀取時須能成功（**WG-14** 拒絕絕對路徑，故**不可**把 `**Path**` 物件或未正規化之絕對路徑塞進 prompt）。
   - 範例（一行）：`**class-helper`**、description、以及反引號內 `**skills/class-helper/SKILL.md**` 路徑皆須可從該行讀出。
-- 實作 `**build_system_prompt(loader: SkillsLoader) -> str**`（或等價名稱），將 **WG-12** 課堂基底、**WG-19** 長期記憶（若有）、與本題 **Skills** 併成**單一**送模用字串（亦供 **WG-17** 成本估算與 `**SystemMessage.content`** 使用）。**建議大段順序**（與合併示範 `**main.py`** 一致）：
+- 實作 `**build_system_prompt() -> str**`（簽名與 **WG-12～19** 相同），將 **WG-12** 課堂基底、**WG-19** 長期記憶（若有）、與本題 **Skills** 併成**單一**送模用字串（亦供 **WG-17**／**WG-19** 成本估算與 `**SystemMessage.content`** 使用）。函式內透過模組級 `**SkillsLoader**` 取得 `**list_skills()**`。**建議大段順序**（與合併示範 `**main.py`** 一致）：
   1. **課堂基底**：`**get_identity()`**（自 **WG-12** 於 **WG-19** 抽出；僅由 `**build_system_prompt**` 呼叫）。
   2. **長期記憶**：同 **WG-19** `**memory_block_for_system()`** 語意（有內文才 append）。
   3. **Active Skills**：`always: true` 的 skill，放入 **去掉 frontmatter 後的正文**；區塊標題 `**# Active Skills`**。
@@ -1798,43 +1812,33 @@ always: false
 - **大段之間**建議以 `**\n\n---\n\n`** 串接（可讀性）；**不得**在「課堂基底」與「`**## Long-term Memory`**」之間插入 **Active／Skills**（與 **WG-19** 讀回小節一致）。
 - 若沒有任何非 `**always`** skill，**不得**出現空的 `**# Skills`** 標題；若完全沒有 skill，亦**不**出現空 **Active** 標題。
 
-#### Tool schema 驗證與參數 cast（銜接 **WG-13**／**WG-14**）
-
-延續 **WG-14** 以 **`@tool`** 暴露的 **`BaseTool`**（並列於 **`TOOLS`**）：模型經 **function calling** 回傳的 **`tool_calls` 參數**常是**字串或寬鬆 JSON**，在呼叫 **`BaseTool.invoke`**（或進入檔案／`exec` 的實作邏輯）前，須先**依輸入 schema 做安全 cast**，再**驗證型別與必填欄位**，避免把髒資料餵進檔案工具或 **`exec`**。
-
-- **JSON Schema 來源（擇一即可）**：
-  - 由 **`TOOLS`** 內各 **`BaseTool`** 取得輸入 schema（例如從 **`tool.args_schema`** 取得 **Pydantic** 模型並呼叫 **`model_json_schema()`**，或 LangChain 版本提供的等價 API）；**或**
-  - 為 **WG-14** 五支工具手寫簡化版 **`parameters: dict`**，至少支援 `**{"type": "object", "properties": {...}, "required": [...]}**`。
-  - `**properties**` 內各欄的 `**type**` 至少支援 **`string`**／**`integer`**／**`number`**／**`boolean`**。
-  - **選修**：`**array`**（僅一層元素）、`**object**`（巢狀一層）。
-- `**cast_params(params: dict) -> dict**`：在驗證**之前**呼叫；語意對齊本專案 **`Tool.cast_params`**——例如 `**"42"**` 在 `**type: "integer"**` 時轉成 `**int**`；`**"true"`／`"false"**`（大小寫不敏感）在 `**boolean**` 轉成 `**bool**`；已符合目標型別則保留；無法轉換時可保留原值交給驗證階段報錯（**全專案一致**即可）。
-- `**validate_params(params: dict) -> list[str]`**：回傳**錯誤訊息串列**（**空**表示通過）；須檢查 `**required`** 缺欄、各欄 `**type**` 與 `**properties**` 鍵是否多出未定義欄位（擇一策略，**註解**說明）。**課堂可自寫檢查器**，不必實作完整 **JSON Schema** 草案。
-- `**prepare_tool_call(name: str, raw: Any) -> tuple[BaseTool | None, dict[str, Any], str | None]`**（函式名可自訂）或**等價流程**：工具名在 **`TOOLS`** 對照表中不存在、或 **`raw`** 無法視為 **dict**（**JSON object**）時，第三個回傳值為**單一錯誤字串**（前兩者為 **`None`／空 dict**）；否則依序 **`cast_params` → `validate_params`**，若有錯誤則組成單一 **`error`**（例如分號串接多條訊息），**不**呼叫 **`BaseTool.invoke`**。
-
 #### 與本專案 `nanobot` 的參考重點
 
 - 參考 `**nanobot.agent.skills.SkillsLoader`**：
   - `skills/<name>/SKILL.md` 是被發現的最小單位。
   - workspace skill 會覆蓋同名 builtin skill。
   - `build_skills_summary` 只把摘要放進 prompt，避免一次塞入所有 skill 正文。
+  - 摘要列之路徑須可直接作為 **WG-14** `read_file` 的 `path` 參數（相對 workspace、POSIX；**不可**絕對路徑）。
 - 參考 `**nanobot.agent.context.ContextBuilder`**：
   - `always` skill 的正文可直接進 system prompt。
   - 一般 skill 只進摘要，等模型需要時再讀全文。
+- **成本與送模一致**：`**ensure_budget_before_react**` 與 ReAct 前皆呼叫**同一** `**build_system_prompt()`**（內含 Skills）。
 - 本題不實作 `requires.bins`／`requires.env`、`disabled_skills`、`metadata.nanobot`、sandbox `extra_allowed_dirs`；這些可列為選修或下一題。
-- 參考 `**nanobot.agent.tools.base.Tool**` 之 **`cast_params`／`validate_params`**，以及 **`ToolRegistry.prepare_call`** 的**流程順序**（先 cast、再驗證、最後才執行工具）：本題改以 **`prepare_tool_call`** + **`BaseTool.invoke`** 對齊同一順序即可，**不**要求自訂 **`Tool`／`ToolRegistry` 類別**，亦不要求 **async** 或與執行緒並發細節逐字相同。
+- **ReAct 工具**：仍依 **WG-13**／**WG-14** 之 `**BaseTool.invoke**`；參數驗證由 LangChain 處理，本題不另寫 cast／validate 層（**不**對照 `nanobot` 之 `Tool.cast_params`／`ToolRegistry.prepare_call`）。
 
 ### 驗收條件
 
+- 在**尚無** `skills/`、`builtin_skills/` 的乾淨專案執行一次（import 模組級 `**SKILLS_LOADER**` 或進入 `**main()`** 前 loader 已建立）：兩根目錄應自動出現；`list_skills()` 仍回 `[]` 直到放入含 `**SKILL.md**` 的子資料夾。
 - 建立至少兩個 skill：一個在 `skills/`、一個在 `builtin_skills/`，且皆有 `SKILL.md`。
 - `list_skills()` 只列出有 `SKILL.md` 的資料夾，並略過一般檔案與缺少 `SKILL.md` 的資料夾。
 - 當 `skills/demo/SKILL.md` 與 `builtin_skills/demo/SKILL.md` 同名時，清單與載入結果使用 workspace 版本。
-- `split_frontmatter` 能取出 `description`，且組出的摘要列含 skill 名稱、description、路徑。
+- `split_frontmatter` 能取出 `description`，且組出的摘要列含 skill 名稱、description、路徑；路徑為**相對 workspace** 且以 `**read_file**` 可讀到對應 `**SKILL.md**`（非絕對路徑）。
 - `always: true` 的 skill 正文會出現在 **Active Skills** 區塊，且不再重複出現在一般摘要清單。
 - 一般 skill 不把全文塞進 system prompt，只出現在摘要清單。
 - 能說明：為什麼 skill 不等於 tool？若模型需要使用某個一般 skill，為什麼應該先讀 `SKILL.md`？
 - **邊界**：若 `SKILL.md` 沒有 frontmatter，程式仍不崩潰，且至少能用資料夾名稱作為 skill 名稱。
-- `**prepare_tool_call`**：對 `**read_file**`（或自訂一個 `**integer**` 參數的示範 **`@tool`**）傳入**字串形式的數字**，`**cast_params`** 後 `**validate_params**` 為空；缺 `**required**` 欄位時 `**validate_params**` 非空且 `**prepare_tool_call**` 不呼叫 **`BaseTool.invoke`**。
-- 能一句話說明：為什麼要先 `**cast_params**` 再 `**validate_params**`（而不是只驗證原始字串）？
+- 能一句話說明：ReAct 執行工具時為何仍用 `**BaseTool.invoke**`，而不必在本題自寫參數 cast／validate 層？
+- 能指出：模組級 `**SkillsLoader**` 在哪裡建立；`**ensure_budget_before_react**` 與 `**main()`** 是否都只呼叫 `**build_system_prompt()`**`。
 
 ### 藍本對應
 
@@ -1848,7 +1852,7 @@ from pathlib import Path
 @dataclass
 class SkillEntry:
     name: str
-    path: Path
+    path: str  # 相對 workspace 根，POSIX；供 read_file，例如 skills/foo/SKILL.md
     source: str
     description: str
     always: bool
@@ -1878,9 +1882,16 @@ def split_frontmatter(text: str) -> tuple[dict[str, str], str]:
     return meta, body
 
 class SkillsLoader:
-    def __init__(self, workspace: Path, builtin_skills_dir: Path) -> None:
-        self.workspace_skills = workspace / "skills"
-        self.builtin_skills = builtin_skills_dir
+    def __init__(self, workspace: Path) -> None:
+        self.workspace = workspace.resolve()
+        self.workspace_skills = self.workspace / "skills"
+        self.builtin_skills = self.workspace / "builtin_skills"
+        self.workspace_skills.mkdir(parents=True, exist_ok=True)
+        self.builtin_skills.mkdir(parents=True, exist_ok=True)
+
+    def _skill_path_for_read(self, skill_file: Path) -> str:
+        """WG-14 read_file 只接受 workspace 內相對路徑，摘要列須用此格式。"""
+        return skill_file.resolve().relative_to(self.workspace).as_posix()
 
     def _entries_from_dir(self, root: Path, source: str, skip: set[str]) -> list[SkillEntry]:
         if not root.exists():
@@ -1899,7 +1910,8 @@ class SkillsLoader:
             name = skill_dir.name
             description = meta.get("description") or name
             always = meta.get("always", "false").lower() == "true"
-            entries.append(SkillEntry(name, skill_file, source, description, always, body))
+            rel_path = self._skill_path_for_read(skill_file)
+            entries.append(SkillEntry(name, rel_path, source, description, always, body))
         return entries
 
     def list_skills(self) -> list[SkillEntry]:
@@ -1914,6 +1926,9 @@ class SkillsLoader:
             if path.exists():
                 return path.read_text(encoding="utf-8")
         return None
+
+# WORKSPACE 見 WG-14 藍本
+SKILLS_LOADER = SkillsLoader(WORKSPACE)
 
 def build_skills_summary(entries: list[SkillEntry]) -> str:
     summarized = [e for e in entries if not e.always]
@@ -1930,14 +1945,14 @@ def memory_block_for_system() -> str:
     return ""
 
 
-def build_system_prompt(loader: SkillsLoader) -> str:
-    """課堂基底 → 長期記憶（若有）→ Active Skills → Skills 摘要（若有）。"""
+def build_system_prompt() -> str:
+    """WG-12～20 送模 system 唯一入口（Skills 經模組級 SKILLS_LOADER）。"""
     parts: list[str] = [get_identity()]
     mem = memory_block_for_system()
     if mem:
         parts.append(mem)
 
-    entries = loader.list_skills()
+    entries = SKILLS_LOADER.list_skills()
     active = [e for e in entries if e.always]
     if active:
         body = "\n\n---\n\n".join(f"### Skill: {e.name}\n\n{e.body}" for e in active)
