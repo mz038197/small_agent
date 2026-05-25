@@ -5,13 +5,13 @@ Agent Workshop 標準程式（reference_agent2.py）— WG-12～20 合併示範�
 學生實作請改專案根 **`main.py`**，勿直接修改本檔。
 
 - WG-12：`build_system_prompt`、`SystemMessage` 與 `history` 分離（system 不進 JSONL）
-- WG-13：`@tool`、`bind_tools`、ReAct 內層迴圈、`ToolMessage`
+- WG-13：抽出 `get_identity`（【解題方式】【依賴管理】）、`@tool`、`bind_tools`、ReAct 內層迴圈、`ToolMessage`
 - WG-14：workspace 路徑解析、五支檔案／shell 工具 + `add_numbers`
 - WG-15：每輪後 `save_session_jsonl`（先寫檔；啟動不讀舊檔）
 - WG-16：啟動時 `load_session_jsonl`（略過壞行；關閉再開可接續）
 - WG-17：`get_token_budget`、`estimate_message_tokens`、`pick_consolidation_boundary`；送模用 `past` 裁切
 - WG-18：`messages_for_model`（孤兒 tool 清理、缺 tool 回覆補洞；送模副本不污染 JSONL）
-- WG-19：`get_identity`、`memory_block_for_system`、ReAct 前 consolidation 整併、`memory/MEMORY.md`
+- WG-19：`memory_block_for_system`、ReAct 前 consolidation 整併、`memory/MEMORY.md`（nanobot 四節結構）、`prompts/memory_merge.md`
 - WG-20：`SkillsLoader`、`SKILLS_LOADER`、Active／Skills 併入 `build_system_prompt()`
 
 預設對話檔：`session_wiki_wg.jsonl`（可用環境變數 `SESSION_JSONL_PATH` 覆寫）
@@ -43,12 +43,19 @@ from langchain_openai import ChatOpenAI
 
 # ---------------------------------------------------------------------------
 # WG-12：人設（system 與 history 分離；完整 build_system_prompt 見 WG-20）
+# WG-13：自 build_system_prompt 抽出 get_identity（【解題方式】【依賴管理】）
 # ---------------------------------------------------------------------------
 
 
 def get_identity() -> str:
-    """WG-12 人設／規則；WG-19 自 build_system_prompt 內抽出。"""
-    system_text = "你是課堂程式助教，並請使用繁體中文。"
+    """WG-13 自 build_system_prompt 抽出；含【解題方式】【依賴管理】。"""
+    system_text = (
+        "你是課堂程式助教，並請使用繁體中文。\n\n"
+        "【解題方式】可重複驗證的任務，優先 write_file 寫成腳本，再 exec 執行"
+        "（例如 uv run python 相對路徑）；避免只在對話中口算或貼無法重跑的一次性指令。\n\n"
+        "【依賴管理】本專案用 uv 管理套件；新增 Python 依賴請在專案根 exec "
+        "uv add <套件名>，不要用 pip install。"
+    )
     nick = "法鬥超人"
     return f"{system_text}\n\n【本場次顯示名稱】{nick}"
 
@@ -418,12 +425,12 @@ def load_session_jsonl(path: str) -> tuple[list[BaseMessage], dict[str, Any] | N
 
 
 def get_token_budget() -> int:
-    raw = os.getenv("TOKEN_BUDGET", "8000")
+    raw = os.getenv("TOKEN_BUDGET", "100000")
     try:
         n = int(raw)
-        return n if n > 0 else 8000
+        return n if n > 0 else 100000
     except ValueError:
-        return 8000
+        return 100000
 
 
 def estimate_message_tokens(message: BaseMessage) -> int:
@@ -548,9 +555,12 @@ def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
 # WG-19：長期記憶整併（ReAct 前；memory/MEMORY.md、memory/HISTORY.md）
 # ---------------------------------------------------------------------------
 
-MEMORY_DIR = Path("memory")
+REFERENCE_DIR = Path(__file__).resolve().parent
+MEMORY_DIR = REFERENCE_DIR / "memory"
 MEMORY_PATH = MEMORY_DIR / "MEMORY.md"
 HISTORY_PATH = MEMORY_DIR / "HISTORY.md"
+MEMORY_TEMPLATE_PATH = REFERENCE_DIR / "templates" / "memory" / "MEMORY.md"
+MEMORY_MERGE_PROMPT_PATH = REFERENCE_DIR / "prompts" / "memory_merge.md"
 LONG_TERM_MEMORY_HEADING = "## Long-term Memory"
 CONSOLIDATION_MAX_RETRIES = 3
 
@@ -561,10 +571,23 @@ def read_memory_md() -> str:
     return MEMORY_PATH.read_text(encoding="utf-8").strip()
 
 
+def load_memory_merge_prompt() -> str:
+    return MEMORY_MERGE_PROMPT_PATH.read_text(encoding="utf-8")
+
+
+def is_default_memory_template(content: str) -> bool:
+    """True when MEMORY.md is still the bundled nanobot starter template."""
+    if not content.strip():
+        return True
+    if not MEMORY_TEMPLATE_PATH.is_file():
+        return False
+    return content.strip() == MEMORY_TEMPLATE_PATH.read_text(encoding="utf-8").strip()
+
+
 def memory_block_for_system() -> str:
-    """有 MEMORY.md 內文才回傳 ## Long-term Memory 區塊（全文讀入，不截斷）。"""
+    """有 MEMORY.md 內文且非預設模板時，回傳 ## Long-term Memory 區塊（全文讀入，不截斷）。"""
     body = read_memory_md()
-    if not body:
+    if not body or is_default_memory_template(body):
         return ""
     return f"{LONG_TERM_MEMORY_HEADING}\n\n{body}"
 
@@ -641,36 +664,10 @@ def _invoke_consolidation(
     chunk_text: str,
     existing_memory: str,
 ) -> dict[str, str] | None:
-
-    consolidation_system = """你是長期記憶整併助手。將「既有 MEMORY.md」與「待整併對話 chunk」濃縮成下一輪仍需要的狀態。
-
-MEMORY.md 是決策與狀態備忘，不是對話逐字稿、不是 tool 輸出備份、不能取代 session.jsonl。
-
-應寫入 memory_update（精簡）：
-- 使用者穩定偏好（建議 ≤3 條）
-- 當前任務目標一句、進行中狀態（做到第幾步、還缺什麼）
-- 已確認的規格或決策（衝突時只保留目前有效一條）
-- 必要專案錨點（例如檔名；建議 ≤2 條）
-
-不應寫入 memory_update：
-- 每輪問答原文、問候、一次性測試
-- tool 成功／失敗過程、retry 細節
-- 版本史逐條堆疊（A 後來改 B）
-- Skill 完整流程正文（只寫「見 skill: xxx」）
-- 除錯過程、語法錯誤、一次性統計
-
-整併原則：
-- memory_update 須合併既有 MEMORY、刪除過期與重複，禁止逐句貼上 chunk
-- 對下一輪無幫助的資訊不要寫
-- history_entry 僅供 HISTORY.md 一行 log，不要把 HISTORY 內容抄進 MEMORY
-
-僅回傳 JSON 物件，且只能有兩個鍵：
-- "history_entry"：繁中單行，摘要本次整併主題
-- "memory_update"：完整 markdown，將覆寫 memory/MEMORY.md（非 append）"""
-
+    consolidation_system = load_memory_merge_prompt()
     user_prompt = (
-        f"既有 MEMORY.md：\n{existing_memory or '（空）'}\n\n"
-        f"待整併對話 chunk：\n{chunk_text}\n\n"
+        f"## CURRENT MEMORY\n{existing_memory or '（空）'}\n\n"
+        f"## CONVERSATION CHUNK\n{chunk_text}\n\n"
         "僅回傳 JSON，不要其他文字。"
     )
     response = consolidation_llm.invoke(
