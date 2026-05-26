@@ -1,7 +1,7 @@
 """
-Agent Workshop 標準程式（reference_agent2.py）— WG-12～20 合併示範。
+Agent Workshop 標準程式（reference_agent2.py）— WG-12～21 合併示範。
 
-對齊 `challenges-agent-workshop.md`（**WG-12～20**）；教練驗收與 Spec 以本檔為準。
+對齊 `challenges-agent-workshop.md`（**WG-12～21**）；教練驗收與 Spec 以本檔為準。
 學生實作請改專案根 **`main.py`**，勿直接修改本檔。
 
 - WG-12：`SystemMessage` 與 `history` 分離（system 不進 JSONL；`build_system_prompt()` 見 WG-20）
@@ -13,14 +13,19 @@ Agent Workshop 標準程式（reference_agent2.py）— WG-12～20 合併示範�
 - WG-18：`messages_for_model`（孤兒 tool 清理、缺 tool 回覆補洞；送模副本不污染 JSONL）
 - WG-19：`memory_block_for_system`、ReAct 前 consolidation 整併、`memory/MEMORY.md`（nanobot 四節結構）、`prompts/memory_merge.md`
 - WG-20：`SkillsLoader`、`SKILLS_LOADER`、Active／Skills 併入 `build_system_prompt()`
+- WG-21：多模態附圖、`image_path` JSONL、history 占位、`messages_for_model` 剝歷史圖
 
 預設對話檔：`session_wiki_wg.jsonl`（可用環境變數 `SESSION_JSONL_PATH` 覆寫）
+附圖：輸入 `/image 相對路徑` 後再輸入本輪文字；與全檔相同 `gpt-5.4-mini`（須支援 vision）。
 """
 
 from __future__ import annotations
 
+import base64
+import copy
 import json
 import os
+import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
@@ -266,7 +271,12 @@ def _serialize_tool_calls(tc: Any) -> list[dict[str, Any]]:
 def _message_to_jsonl_line(m: BaseMessage) -> str | None:
     ts = datetime.now().isoformat()
     if isinstance(m, HumanMessage):
-        row: dict[str, Any] = {"role": "user", "content": m.content, "timestamp": ts}
+        text, image_path, media_type = human_fields_for_jsonl(m)
+        row: dict[str, Any] = {"role": "user", "content": text, "timestamp": ts}
+        if image_path:
+            row["image_path"] = image_path
+            if media_type:
+                row["media_type"] = media_type
     elif isinstance(m, AIMessage):
         row = {"role": "assistant", "content": m.content, "timestamp": ts}
         tc = getattr(m, "tool_calls", None)
@@ -327,7 +337,7 @@ def save_session_jsonl(
 def _row_to_message(obj: dict[str, Any]) -> BaseMessage | None:
     role = obj.get("role")
     if role == "user":
-        return HumanMessage(content=str(obj.get("content", "")))
+        return load_user_row_to_history_human(obj)
     if role == "assistant":
         content = str(obj.get("content", ""))
         tc = obj.get("tool_calls")
@@ -375,6 +385,163 @@ def load_session_jsonl(path: str) -> tuple[list[BaseMessage], dict[str, Any] | N
 
 
 # ---------------------------------------------------------------------------
+# WG-21：多模態附圖、JSONL image_path、history 占位、送模剝歷史圖
+# ---------------------------------------------------------------------------
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+_IMAGE_PLACEHOLDER_RE = re.compile(
+    r"\n\n\[此回合曾附圖，路徑：([^\]]+)\](?:（media_type=([^）]+)）)?\s*$"
+)
+
+
+def guess_media_type(path: Path, fallback: str = "image/png") -> str:
+    ext = path.suffix.lower()
+    if ext in (".jpg", ".jpeg"):
+        return "image/jpeg"
+    if ext == ".png":
+        return "image/png"
+    if ext == ".webp":
+        return "image/webp"
+    return fallback
+
+
+def image_bytes_to_data_url(data: bytes, media_type: str) -> str:
+    b64 = base64.b64encode(data).decode("ascii")
+    return f"data:{media_type};base64,{b64}"
+
+
+def resolve_project_image_path(rel: str) -> Path:
+    """WG-21：相對路徑須落在專案根下（防 .. 逃出）。"""
+    raw = Path(rel)
+    if raw.is_absolute():
+        raise PermissionError("absolute image paths are not allowed")
+    full = (PROJECT_ROOT / rel).resolve()
+    try:
+        full.relative_to(PROJECT_ROOT)
+    except ValueError as e:
+        raise PermissionError(f"image path is outside project root: {rel}") from e
+    return full
+
+
+def parse_history_human_content(content: str) -> tuple[str, str | None, str | None]:
+    match = _IMAGE_PLACEHOLDER_RE.search(content)
+    if not match:
+        return content, None, None
+    text = content[: match.start()].rstrip()
+    return text, match.group(1), match.group(2)
+
+
+def history_human_placeholder(
+    text: str, image_rel: str | None, media_type: str | None = None
+) -> HumanMessage:
+    """WG-21：寫入 history／JSONL 前之純字串 user（含附圖占位）。"""
+    if not image_rel:
+        return HumanMessage(content=text)
+    extra = f"[此回合曾附圖，路徑：{image_rel}]"
+    if media_type:
+        extra += f"（media_type={media_type}）"
+    body = f"{text}\n\n{extra}" if text else extra
+    return HumanMessage(content=body)
+
+
+def human_fields_for_jsonl(m: HumanMessage) -> tuple[str, str | None, str | None]:
+    """自 history 占位 HumanMessage 抽出 JSONL 欄位（不得序列化 list content）。"""
+    if isinstance(m.content, list):
+        raise ValueError("WG-21：不可將多模態 HumanMessage 直接寫入 JSONL")
+    content = str(m.content)
+    text, image_path, media_type = parse_history_human_content(content)
+    return text, image_path, media_type
+
+
+def load_user_row_to_history_human(row: dict[str, Any]) -> HumanMessage:
+    """WG-21／WG-16：冷啟動載入 user 列；有 image_path 亦只還原占位，不讀圖。"""
+    text = str(row.get("content", ""))
+    rel = row.get("image_path")
+    if not rel:
+        return HumanMessage(content=text)
+    mt = row.get("media_type")
+    return history_human_placeholder(text, str(rel), str(mt) if mt else None)
+
+
+def build_human_message_for_current_turn(
+    text: str, image_rel: str | None
+) -> HumanMessage:
+    """WG-21：僅本輪送模可組多模態；此時才 open(rb)。"""
+    if not image_rel:
+        return HumanMessage(content=text)
+
+    try:
+        full = resolve_project_image_path(image_rel)
+    except PermissionError as e:
+        print(f"[warn] rejected image path: {e}")
+        return HumanMessage(content=text)
+
+    if not full.is_file():
+        print(f"[warn] missing image for current turn: {image_rel}")
+        return HumanMessage(content=text)
+
+    media_type = guess_media_type(full)
+    with open(full, "rb") as f:
+        data = f.read()
+    url = image_bytes_to_data_url(data, media_type)
+    blocks: list[dict[str, Any]] = []
+    if text:
+        blocks.append({"type": "text", "text": text})
+    blocks.append({"type": "image_url", "image_url": {"url": url}})
+    return HumanMessage(content=blocks)
+
+
+def _human_text_length(message: HumanMessage) -> int:
+    content = message.content
+    if isinstance(content, str):
+        return len(content)
+    if isinstance(content, list):
+        total = 0
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                total += len(str(block.get("text", "")))
+        return total
+    return len(str(content))
+
+
+def _human_to_text_only_for_model(m: HumanMessage) -> HumanMessage:
+    """WG-21：送模前剝除 history 內 image_url 區塊。"""
+    content = m.content
+    if isinstance(content, str):
+        return copy.deepcopy(m)
+    if isinstance(content, list):
+        parts: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+        body = (
+            "\n".join(p for p in parts if p).strip()
+            or "[（無文字）此則曾含圖，已於送模層剝除圖區塊]"
+        )
+        return HumanMessage(content=body + "\n\n[送模層已剝除歷史圖區塊]")
+    return HumanMessage(content=str(content))
+
+
+def _last_human_index(messages: list[BaseMessage]) -> int | None:
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], HumanMessage):
+            return i
+    return None
+
+
+def _keep_image_only_on_current_human(messages: list[BaseMessage]) -> list[BaseMessage]:
+    """WG-21：送模副本中，僅本輪（最後一則）HumanMessage 可保留 image；其餘剝為純文字。"""
+    last_human = _last_human_index(messages)
+    out: list[BaseMessage] = []
+    for i, msg in enumerate(messages):
+        mm = copy.deepcopy(msg)
+        if isinstance(mm, HumanMessage) and last_human is not None and i != last_human:
+            mm = _human_to_text_only_for_model(mm)
+        out.append(mm)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # WG-17：字元預算與送模裁切（history 全量保留，past 為送模切片）
 # ---------------------------------------------------------------------------
 
@@ -389,6 +556,8 @@ def get_token_budget() -> int:
 
 
 def estimate_message_tokens(message: BaseMessage) -> int:
+    if isinstance(message, HumanMessage):
+        return _human_text_length(message)
     content = message.content
     return len(content) if isinstance(content, str) else 0
 
@@ -439,11 +608,11 @@ def _known_tool_call_ids(messages: list[BaseMessage], before_index: int) -> set[
 
 
 def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
-    """WG-18：自完整 transcript 產出送模副本（A 孤兒 tool、B 缺 tool 補洞）。
+    """WG-18＋WG-21：送模副本（tool 修復；歷史剝圖、本輪可多模態）。
 
     回傳新 list，不就地修改輸入（避免污染將寫入 JSONL 的 history）。
     """
-    out: list[BaseMessage] = list(messages)
+    out: list[BaseMessage] = copy.deepcopy(messages)
 
     # A: drop orphan ToolMessage rows
     kept: list[BaseMessage] = []
@@ -494,7 +663,7 @@ def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
             insert_at += 1
         i += 1
 
-    return out
+    return _keep_image_only_on_current_human(out)
 
 
 # ---------------------------------------------------------------------------
@@ -506,14 +675,15 @@ def run_react_turn(
     llm_tools: ChatOpenAI,
     system_text: str,
     past: list[BaseMessage],
-    user_text: str,
+    human_message: HumanMessage,
+    history_human: HumanMessage | None = None,
 ) -> tuple[str, list[BaseMessage]]:
     """單輪 ReAct：stream → tool_calls → ToolMessage 迴圈，直到純文字回覆。
 
     WG-17：`past` 為裁切後送模切片；完整 `history` 由 `main()` 另行累積。
-    WG-18：每段 stream 前以 `messages_for_model` 修復 transcript。
+    WG-18＋WG-21：每段 stream 前以 `messages_for_model` 修復 transcript 並剝歷史圖。
+    WG-21：`human_message` 可為本輪多模態；`history_human` 為寫入 history 之占位版。
     """
-    human_message = HumanMessage(content=user_text)
     messages: list[BaseMessage] = [
         SystemMessage(content=system_text),
         *past,
@@ -544,7 +714,14 @@ def run_react_turn(
             break
 
     turn_messages = messages[idx_turn_start:]
-    final_text = response.content.strip()
+    if history_human is not None and turn_messages:
+        turn_messages = [history_human, *turn_messages[1:]]
+    final_content = response.content
+    final_text = (
+        final_content.strip()
+        if isinstance(final_content, str)
+        else str(final_content).strip()
+    )
     return final_text, turn_messages
 
 
@@ -612,7 +789,14 @@ def _message_plaintext(message: BaseMessage) -> str:
         role = "tool"
     else:
         role = "other"
-    content = message.content if isinstance(message.content, str) else str(message.content)
+    if isinstance(message, HumanMessage):
+        content = (
+            message.content
+            if isinstance(message.content, str)
+            else _human_to_text_only_for_model(message).content
+        )
+    else:
+        content = message.content if isinstance(message.content, str) else str(message.content)
     extra = ""
     if isinstance(message, AIMessage) and message.tool_calls:
         names = [
@@ -900,7 +1084,7 @@ def ensure_budget_before_react(
 
 
 # ---------------------------------------------------------------------------
-# 進入點（WG-12～20 合併主迴圈）
+# 進入點（WG-12～21 合併主迴圈）
 # ---------------------------------------------------------------------------
 
 
@@ -916,10 +1100,18 @@ def main() -> None:
     api_key = os.getenv("OPENAI_API_KEY")
 
     if api_key:
-        print("已讀到 API 金鑰設定（內容不顯示）；進入對話（串流 + 工具 + JSONL + 預算裁切）。")
+        print(
+            "已讀到 API 金鑰設定（內容不顯示）；進入對話"
+            "（串流 + 工具 + JSONL + 預算裁切 + WG-21 附圖）。"
+        )
     else:
         print("尚未讀到 OPENAI_API_KEY；請檢查 .env 或系統環境變數。")
         return
+
+    print(
+        "（WG-21 附圖：先輸入 `/image 相對路徑`，再輸入本輪文字；"
+        "或單行 `/image 路徑 問題`。）"
+    )
 
     # WG-16：啟動載入
     session_path = os.getenv("SESSION_JSONL_PATH", "session_wiki_wg.jsonl")
@@ -935,29 +1127,62 @@ def main() -> None:
     else:
         print(f"尚無可載入歷史或檔不存在；自空 history 開始（WG-15 寫入）。")
 
-    # WG-12～14：模型、system、工具
+    # WG-12～21：全程同一 model（gpt-5.4-mini）
     llm = ChatOpenAI(model="gpt-5.4-mini", temperature=0.2)
     llm_tools = llm.bind_tools(TOOLS)
-    consolidation_llm = ChatOpenAI(model="gpt-5.4-mini", temperature=0.2)
     print(
         f"（WG-17 TOKEN_BUDGET={get_token_budget()}，"
         f"WG-19 整併目標 ≤ {get_token_budget() // 2} 字元；以字元長度模擬 token。）"
     )
 
+    pending_image: str | None = None
+
     while True:
-        user_text = input("\n你：").strip()
-        if user_text.lower() in ("quit", "exit", "q"):
+        user_line = input("\n你：").strip()
+        if user_line.lower() in ("quit", "exit", "q"):
             print("再見！")
             break
-        if not user_text:
+        if not user_line:
             continue
 
-        human_message = HumanMessage(content=user_text)
+        image_rel: str | None = None
+        user_text = user_line
 
-        # WG-19：完成後 cost 已 <= target；直接組 system + past 進 ReAct
+        if user_line.startswith("/image "):
+            rest = user_line[len("/image ") :].strip()
+            if not rest:
+                print("（用法：`/image 相對路徑`，下一行輸入文字；或 `/image 路徑 問題`）")
+                continue
+            parts = rest.split(maxsplit=1)
+            image_rel = parts[0]
+            if len(parts) > 1:
+                user_text = parts[1].strip()
+            else:
+                pending_image = image_rel
+                print(f"（已選附圖 {image_rel!r}，請輸入本輪文字）")
+                continue
+        elif pending_image is not None:
+            image_rel = pending_image
+            pending_image = None
+            user_text = user_line
+
+        if not user_text and not image_rel:
+            continue
+
+        media_type: str | None = None
+        if image_rel:
+            try:
+                media_type = guess_media_type(resolve_project_image_path(image_rel))
+            except PermissionError:
+                media_type = None
+
+        history_human = history_human_placeholder(user_text, image_rel, media_type)
+        human_for_send = build_human_message_for_current_turn(user_text, image_rel)
+
+        # WG-19：占位版 human 參與預算估算
         prev_consolidated = last_consolidated
         last_consolidated = ensure_budget_before_react(
-            consolidation_llm, history, last_consolidated, human_message
+            llm, history, last_consolidated, history_human
         )
         if last_consolidated != prev_consolidated:
             if session_meta is None:
@@ -968,10 +1193,14 @@ def main() -> None:
         system_text = build_system_prompt()
         past = history[last_consolidated:]
 
-        # WG-13：ReAct 一輪（送模含 system + past + 本輪 user）
+        # WG-13＋WG-21：ReAct 一輪（送模含 system + past + 本輪多模態 user）
         print("\n助手：", end="", flush=True)
         _reply_text, turn_messages = run_react_turn(
-            llm_tools, system_text, past, user_text
+            llm_tools,
+            system_text,
+            past,
+            human_for_send,
+            history_human,
         )
         print()
 
