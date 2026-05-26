@@ -3,6 +3,7 @@
 - **基礎挑戰（手把手建立 Agent）（WG-01～WG-16）**：從 Python 入門到「能與模型對話、能呼叫工具、能把對話寫入／讀回檔案」的**概念與實作題**；請依題號順序完成，每題對照藍本在教師指定檔中實作與驗收。
 - **進階挑戰（AI Coding 實戰）（WG-17～WG-21）**：在基礎段之上，練習上下文裁切、送模前整理、長期記憶、Skills 與多模態等**進階 Agent 行為**；題目較複雜，**建議搭配 AI 協作編程**（如 Cursor）完成；建議基礎段通過後再接續。
 - **全域串流要求（WG-10 起）**：除工具判斷、工具執行、JSONL 載入、長期記憶整併等**內部步驟**可使用 `invoke` 外，凡是「最後要顯示給使用者看的 assistant 文字回覆」都必須使用 `stream` 串流輸出；不得只以 `print(response.content)` 一次印出最終回答。若特定模型／供應商路徑暫不支援串流（例如部分 vision 驗收環境），須在程式註解或驗收說明中明確標示退回 `invoke` 的原因。
+- **合併示範 `reference_agent2.py`（WG-12～21）之模型**：對話、ReAct、長期整併、附圖等**全程共用** **`ChatOpenAI(model="gpt-5.4-mini", temperature=0.2)`**；**不**另設 chat／consolidation／vision 等不同 model 名或環境變數分流。
 
 ## ITS Python 基礎概念
 
@@ -42,7 +43,7 @@
 | 進階 | **WG-18** | 送模前先洗對話簿——transcript 修復 | 實作 `messages_for_model`（LangChain `BaseMessage`）：孤兒 `ToolMessage` 清理、缺 tool 回覆補洞；完整 `history` 與送模副本分離（字元預算見 **WG-17**、整併見 **WG-19**）。 | 4、5、6 |
 | 進階 | **WG-19** | 舊對話濃縮成長期備忘——整併與每輪讀回組裝 | `memory/MEMORY.md`（nanobot 四節）、`HISTORY.md`、`**prompts/memory_merge.md**`；**先規劃** `final_idx` 再一次 consolidation；`**is_default_memory_template**`；`## Long-term Memory` 併入 **system**（延續 **WG-13** `**get_identity()`**）。 | 5、6 |
 | 進階 | **WG-20** | 技能卡進工具箱——最小 SkillsLoader 與 system prompt 注入 | 模組級 `**SKILLS_LOADER**`（對齊 **WG-14** `**WORKSPACE**`）；`skills/<name>/SKILL.md`、frontmatter 摘要、workspace／builtin 合併、同名覆蓋；`**build_system_prompt()`**（簽名不變）內併 Skills，依序：**課堂基底** → **長期記憶**（若有）→ `**# Active Skills**` → `**# Skills**`；大段間 `**---**`。ReAct 工具仍依 **WG-13**／**WG-14** 之 `**BaseTool.invoke**`。 | 4、5、6 |
-| 進階 | **WG-21** | 眼睛也進對話——多模態附圖、`image_path` 與 JSONL 載回閉環 | JSONL 之 `**user**` 列僅存 **`image_path`**／`**media_type**`（**不**存長 base64）；冷啟動載入 `**history**` 為**純文字占位**；**送模層** `**messages_for_model**`：**僅本輪**可含 data URL 圖區塊、**歷史**舊附圖不得重送；`**open(..., "rb")**`／base64 僅在本輪組圖時使用；須使用支援 **vision** 之模型。 | 4、5、6 |
+| 進階 | **WG-21** | 眼睛也進對話——多模態附圖、`image_path` 與 JSONL 載回閉環 | JSONL 之 `**user**` 列僅存 **`image_path`**／`**media_type**`（**不**存長 base64）；冷啟動載入 `**history**` 為**純文字占位**；**送模層** `**messages_for_model**`：**僅本輪**可含 data URL 圖區塊、**歷史**舊附圖不得重送；`**open(..., "rb")**`／base64 僅在本輪組圖時使用；與全檔相同 **`gpt-5.4-mini`**（須支援 vision）。 | 4、5、6 |
 
 ---
 
@@ -1116,7 +1117,7 @@ def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
 
 - **觸發與成本**：以 **`get_token_budget()`** 讀 env **`TOKEN_BUDGET`**（預設 **`100000`**；語意同 **WG-17**）。令 `**target = get_token_budget() // 2**`。Phase A 成本：**`system_text = build_system_prompt()`**（含當前 `**MEMORY.md**` 讀回）、`**past0 = history[last_consolidated:]**`、`**cost = len(system_text) + message_cost([*past0, human_message])`**。
 - **ReAct 前目標**：`**cost <= target**` 才得進入 `**run_react_turn**`／主對話 `**llm.stream**`。
-- **`ensure_budget_before_react(consolidation_llm, history, last_consolidated, human_message) -> int` 契約**：`**main()`** 須建立 **consolidation 專用** `**consolidation_llm**`（可與主模型同型號）並傳入第一參數。此函式**僅在** Phase A 確認 `**cost <= target**` 時 `**return last_consolidated**`。`**main()`** 在其執行完畢後**直接** `**build_system_prompt()`** → `**run_react_turn**`，**不得**再重算 cost 或加第二道 if 警告（完全信任此函式）。
+- **`ensure_budget_before_react(consolidation_llm, history, last_consolidated, human_message) -> int` 契約**：`**main()`** 直接將主對話之 `**llm**`（`**ChatOpenAI(model="gpt-5.4-mini", ...)`**）傳入第一參數；**不必**另建 `**consolidation_llm**` 變數或第二個不同 model 的實例。此函式**僅在** Phase A 確認 `**cost <= target**` 時 `**return last_consolidated**`。`**main()`** 在其執行完畢後**直接** `**build_system_prompt()`** → `**run_react_turn**`，**不得**再重算 cost 或加第二道 if 警告（完全信任此函式）。
 - **觸發整併流程**：若 `**cost > target**`，進入下方**外層迴圈**（規劃 → 整併 → 推游標 → 重算）；若 `**cost <= target**`，**不**呼叫 consolidation LLM、**不**推 `**last_consolidated**`，`**past = history[last_consolidated:]**`。
 - **與 WG-17 分工**：`**pick_consolidation_boundary`** 仍負責在 **user-turn 前**選邊界；**WG-19** 在**規劃段**用它算出 `**final_idx**`，**整併段**才呼叫 LLM。併 **WG-19** 後，**不得**只做 WG-17 式「機械推游標、不寫 **MEMORY**」的靜默裁切。
 
@@ -1290,7 +1291,7 @@ def build_system_prompt() -> str:
 human_message = HumanMessage(content=user_text)
 prev_consolidated = last_consolidated
 last_consolidated = ensure_budget_before_react(
-    consolidation_llm, history, last_consolidated, human_message
+    llm, history, last_consolidated, human_message
 )
 if last_consolidated != prev_consolidated:
     session_meta = save_session_jsonl(
@@ -1309,7 +1310,7 @@ session_meta = save_session_jsonl(
 
 ```text
 專案根/
-  reference_agent2.py   # 合併藍本（WG-12～20）
+  reference_agent2.py   # 合併藍本（WG-12～21）
   memory/
     MEMORY.md           # 覆寫：精簡備忘（nanobot 四節）
     HISTORY.md          # 追加：[YYYY-MM-DD HH:MM] 摘要 或 [CONSOLIDATION-FAILED] …
@@ -1556,7 +1557,7 @@ def memory_block_for_system() -> str:
 
 
 def build_system_prompt() -> str:
-    """WG-12～20 送模 system 唯一入口（Skills 經模組級 SKILLS_LOADER）。"""
+    """WG-12～21 送模 system 唯一入口（Skills 經模組級 SKILLS_LOADER）。"""
     parts: list[str] = [get_identity()]
     mem = memory_block_for_system()
     if mem:
@@ -1595,12 +1596,12 @@ def build_system_prompt() -> str:
 
 #### 先修與依賴
 
-- 須已能組出 **WG-12** 送模結構：`**[system_message, *history, human_message]**`（或課堂合併版之等價結構），並具備 **WG-15**（寫入）與 **WG-16**（載回）之 JSONL 行為。
+- 須已能組出 **WG-12** 送模結構：`**[system_message, *history, human_message]**`（或課堂合併版之等價結構），並具備 **WG-15**（寫入）與 **WG-16**（載回）之 JSONL 行為。合併示範 **`reference_agent2.py`** 已含 **WG-12～21** 完整閉環（含 **ReAct**、附圖 **`/image`**）。
 - 本題**不要求**在驗收場景中實作 **WG-13** **ReAct**／`**tool_calls**`／`**ToolMessage**` 鏈（若學生專案已併入工具，只要 `**user**` 列擴充與載回邏輯仍正確即可）。
 
 #### 模型與套件
 
-- 須使用支援**多模態輸入**的聊天模型（例如 **`gpt-4o`** 或課程指定之等價模型）；`**ChatOpenAI**` 之 `**model**` 須可在環境變數或常數中設定，並在 README／註解註明「本題需 vision」。
+- 須使用支援**多模態輸入**的 **`gpt-5.4-mini`**（與 **`reference_agent2.py`** 全檔相同 **`ChatOpenAI(model="gpt-5.4-mini", temperature=0.2)`**；**不**另設 chat／整併／vision 分流）。模型名可依課程替換時須**全檔一致**，驗收以藍本為準。
 - 以 **`langchain_core.messages.HumanMessage`** 建立使用者訊息；當本輪含圖時，`**HumanMessage.content**` 為**串列**，元素為供應商要求之**內容區塊**（dict）。與 **OpenAI Chat Completions 相容**之常見形狀如下（教師可依實際 **LangChain** 版本微調鍵名，以「能成功 `**invoke**`／`**stream**`」為準）：
   - 一則 **`{"type": "text", "text": "<使用者文字>"}`**。
   - 一則 **`{"type": "image_url", "image_url": {"url": "<data URL 或 https URL>"}}`**；本題驗收採 **data URL**：`**data:{media_type};base64,{base64_string}**`。
@@ -1624,7 +1625,7 @@ def build_system_prompt() -> str:
 
 - 每輪對話結束、`**history.extend(...)**` 或等價累積時，寫入 `**history**` 的 **user** 訊息**須為純字串** `**HumanMessage**`（含附圖占位，與下方「載回」一節一致）；**不得**把本輪送模用的多模態 `**HumanMessage**`（`**content**` 為 list）直接留在 `**history**` 中。
 - **多模態組裝僅供本輪送模**：讀檔、base64、組 `**image_url**` 區塊發生在本輪送模路徑（含 `**messages_for_model**` 輸入之「本輪 `**human_message**`」）；**持久化**（JSONL）與**跨輪** `**history**` 以占位版為準。
-- 若專案已併 **WG-13** **ReAct**：`**run_react_turn**` 回傳、準備 `**extend**` 進 `**history**` 的 `**turn_messages**` 中，本輪 **user** 亦須為上述占位版（或在寫入 `**history**`／JSONL 前轉換），**不可**留 list **`content`**。
+- 若專案已併 **WG-13** **ReAct**：`**run_react_turn**` 送模用本輪多模態 `**human_message**`，寫入 `**history**` 的 `**turn_messages**` 首則 **user** 須為占位版 `**history_human**`（對齊 **`reference_agent2.py`**：`run_react_turn(..., human_message, history_human=...)`）；**不可**留 list **`content`**。
 
 #### 併 **WG-17**／**WG-19** 時
 
@@ -1651,7 +1652,7 @@ def build_system_prompt() -> str:
 
 #### 互動（建議最小形狀）
 
-- 課堂可約定單一指令，例如使用者輸入 **`/image 相對路徑`** 後再輸入**同一輪**之文字問題；或兩行式 `**input**`（先路徑、後文字）。重點是：**程式能區分「本輪是否附圖」**並正確寫入 JSONL。
+- 課堂可約定單一指令，例如使用者輸入 **`/image 相對路徑`** 後再輸入**同一輪**之文字問題；或 **`/image 路徑 問題`** 單行；或兩行式 `**input**`（先路徑、後文字）。重點是：**程式能區分「本輪是否附圖」**並正確寫入 JSONL。合併示範見 **`reference_agent2.py`** 之 `**main()`**。
 
 ### 驗收條件
 
@@ -1667,7 +1668,7 @@ def build_system_prompt() -> str:
 
 ### 藍本對應程式（結構示意）
 
-以下示意三層：**JSONL 一列**（只存路徑）、**載入 `history` 之純文字占位**、**本輪送模才組多模態**；並示意 **`messages_for_model`** 保險剝除歷史中的圖區塊。**不**與 **WG-15** 整檔寫入、`**metadata**` 首行等強綁——學生應併入自己已通過之 session 流程。
+以下示意三層：**JSONL 一列**（只存路徑）、**載入 `history` 之純文字占位**、**本輪送模才組多模態**；並示意 **`messages_for_model`** 保險剝除歷史中的圖區塊。**完整合併實作**見專案根 **`reference_agent2.py`**（**WG-12～21**）；學生作答仍改 **`main.py`**。
 
 ```python
 import base64
