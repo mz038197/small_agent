@@ -1618,6 +1618,18 @@ def build_system_prompt() -> str:
   - **`image_path`**：`str`，相對於約定根之路徑（**不得**寫入 base64 或二進位）。
   - **`media_type`**（可選）：`**image/png**`、`**image/jpeg**` 等；省略時由載入端推斷。
 - **仍不得**將 **`SystemMessage**` 寫入 JSONL（與 **WG-15** 相同）。
+- 擴充 **WG-15** 之 `**save_session_jsonl**`／序列化 **`user`** 列時：**不得**把 `**HumanMessage.content**` 為多模態 **list**（含 `**image_url**`／data URL）整包寫入 JSONL。有圖回合須依本節列格式，自**本輪附圖資訊**寫出 **`content`（純文字）**、`**image_path**`、可選 `**media_type**`（可對齊藍本 `**user_row_dict**`）；**不可**直接 `json.dumps` 整份 list **`content`**。
+
+#### 記憶體 `history` 與回合結束（合併 **WG-15**／**ReAct** 時必做）
+
+- 每輪對話結束、`**history.extend(...)**` 或等價累積時，寫入 `**history**` 的 **user** 訊息**須為純字串** `**HumanMessage**`（含附圖占位，與下方「載回」一節一致）；**不得**把本輪送模用的多模態 `**HumanMessage**`（`**content**` 為 list）直接留在 `**history**` 中。
+- **多模態組裝僅供本輪送模**：讀檔、base64、組 `**image_url**` 區塊發生在本輪送模路徑（含 `**messages_for_model**` 輸入之「本輪 `**human_message**`」）；**持久化**（JSONL）與**跨輪** `**history**` 以占位版為準。
+- 若專案已併 **WG-13** **ReAct**：`**run_react_turn**` 回傳、準備 `**extend**` 進 `**history**` 的 `**turn_messages**` 中，本輪 **user** 亦須為上述占位版（或在寫入 `**history**`／JSONL 前轉換），**不可**留 list **`content`**。
+
+#### 併 **WG-17**／**WG-19** 時
+
+- 字元預算（`**ensure_budget_before_react**`、`**message_cost**`、`**pick_consolidation_boundary**`）與長期整併（`**_message_plaintext**`／chunk plaintext）所參照之 **user** 訊息，應以**純字串占位版**為準；或 `**estimate_message_tokens**` 等估算函式至少累加**文字區塊**長度。
+- **不得**因 `**HumanMessage.content**` 為 list 而將該則算成 **0** 字元，亦**不得**把 data URL／整段 list **`str(...)`** 送進整併 prompt（避免整併成本失控與邊界錯誤）。
 
 #### 載回（擴充 **WG-16**）— 記憶體中的 `history`
 
@@ -1644,10 +1656,12 @@ def build_system_prompt() -> str:
 ### 驗收條件
 
 - 在**有金鑰**且模型支援 vision 的前提下，**同一輪**送進 `**stream**` 的 `**HumanMessage**` 於附圖時為**含文字區塊與 image 區塊**之結構，且模型回覆能合理呼應圖片內容（教師可用專案內一張**固定示範圖**驗收）。若課堂使用的 vision 模型或供應商路徑暫不支援串流，才可退回 `**invoke**`，但須在程式註解或驗收說明中明確標示原因。
-- **寫檔後**以文字編輯器或 `**print**` 檢查 JSONL：**不得**出現長度明顯為整檔圖片之 base64 欄位塞在單一 `**user**` 列內；**應**能看到精簡的 **`image_path`**（與可選 **`media_type`**）。
+- **寫檔後**以文字編輯器或 `**print**` 檢查 JSONL：**不得**出現長度明顯為整檔圖片之 base64 欄位塞在單一 `**user**` 列內；**應**能看到精簡的 **`image_path`**（與可選 **`media_type`**）。能指出 **WG-15** 寫入路徑如何把附圖回合落成 `**image_path**` 列，而非序列化多模態 `**content**` list。
+- **附圖輪結束後**（尚未關程式）：記憶體 `**history**` 中該則 **user** 為**純字串** `**HumanMessage**`（含路徑占位），`**content**` **不是** list；多模態僅存在於本輪送模副本。
 - **關閉程式再開**：載入 JSONL 後，含 **`image_path`** 之舊 `**user**` 回合在 `**history**` 中應還原為**純文字**（含 **`[此回合曾附圖，路徑：…]`** 類占位），且 JSONL 檔內仍**只**有精簡路徑、**無**長 base64。重開後使用者**新的一輪**若再附圖，送進模型之該輪 `**HumanMessage**` 仍須為多模態且能合理呼應該張新圖。
 - **送模層**：在「已有一則以上含 `**image_path**` 占位之歷史」且「本輪又附一張新圖」之情境下，實際送入 `**invoke**`／`**stream**` 的訊息列中，**至多一則** `**HumanMessage**` 含 `**image_url**`／data URL（即本輪）；其餘舊附圖回合僅能是純文字占位。能於程式碼或註解指出 **`messages_for_model`**（或等價函式）何處完成此轉換。
 - 將示範圖**暫時改名或移走**後再開程式：於**本輪再次**以該路徑附圖送模時，行為符合**規格**中「檔案不存在」之約定（略過圖＋警告，或明確錯誤處理）。
+- 若專案已併 **WG-17**／**WG-19**：能說明附圖占位版 **user** 如何參與字元預算／整併（或指出 `**estimate_message_tokens**` 如何處理非 `str` 之 `**content**`），且整併 chunk **不**含 data URL。
 - （建議）附圖那一輪之 **assistant** 回覆至少包含**一句以上**對圖像內容的具體描述，以利後續純文字輪延續討論（呼應送模層「舊圖不重送像素」之實務）。
 - 能口頭或書面說明：**為何 JSONL 只存路徑、不存整張圖的 base64？**（檔案大小、可維護性、單一真相來源等任舉兩項合理理由即可。）
 
