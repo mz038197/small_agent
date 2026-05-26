@@ -1,22 +1,10 @@
 """
-Agent Workshop 標準程式（reference_agent2.py）— WG-12～21 合併示範。
+Agent Workshop 標準核心（reference_agent_core.py）— peas-workshop-advanced-coach 內唯讀對照。
 
-對齊 `challenges-agent-workshop.md`（**WG-12～21**）；教練驗收與 Spec 以本檔為準。
-學生實作請改專案根 **`main.py`**，勿直接修改本檔。
+WG-22 拆檔後標準答案（同專案根 `agent_core.py`）；教練驗收與 Spec 以本檔 + `reference_main.py` 為準。
+學生實作請改專案根 **`agent_core.py`** + **`main.py`**；勿直接修改本 skill references。
 
-- WG-12：`SystemMessage` 與 `history` 分離（system 不進 JSONL；`build_system_prompt()` 見 WG-20）
-- WG-13：`get_identity`（【解題方式】【依賴管理】）、`@tool`、`bind_tools`、ReAct 內層迴圈、`ToolMessage`
-- WG-14：workspace 路徑解析、五支檔案／shell 工具 + `add_numbers`
-- WG-15：每輪後 `save_session_jsonl`（先寫檔；啟動不讀舊檔）
-- WG-16：啟動時 `load_session_jsonl`（略過壞行；關閉再開可接續）
-- WG-17：`get_token_budget`、`estimate_message_tokens`、`pick_consolidation_boundary`；送模用 `past` 裁切
-- WG-18：`messages_for_model`（孤兒 tool 清理、缺 tool 回覆補洞；送模副本不污染 JSONL）
-- WG-19：`memory_block_for_system`、ReAct 前 consolidation 整併、`memory/MEMORY.md`（nanobot 四節結構）、`prompts/memory_merge.md`
-- WG-20：`SkillsLoader`、`SKILLS_LOADER`、Active／Skills 併入 `build_system_prompt()`
-- WG-21：多模態附圖、`image_path` JSONL、history 占位、`messages_for_model` 剝歷史圖
-
-預設對話檔：`session_wiki_wg.jsonl`（可用環境變數 `SESSION_JSONL_PATH` 覆寫）
-附圖：輸入 `/image 相對路徑` 後再輸入本輪文字；與全檔相同 `gpt-5.4-mini`（須支援 vision）。
+公開 API：`Agent.from_env()`、`Agent.chat(user_text, *, image_path=..., on_token=...)`
 """
 
 from __future__ import annotations
@@ -27,6 +15,7 @@ import json
 import os
 import re
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -80,6 +69,7 @@ def add_numbers(a: float, b: float) -> float:
 def _stream_model_response(
     llm_tools: ChatOpenAI,
     messages: list[BaseMessage],
+    on_token: Callable[[str], None] | None = None,
 ) -> AIMessage:
     """串流累積為 AIMessage；僅印模型文字，工具執行由呼叫端處理。"""
     acc: AIMessageChunk | None = None
@@ -87,7 +77,10 @@ def _stream_model_response(
         acc = chunk if acc is None else acc + chunk
         content = chunk.content
         if isinstance(content, str) and content:
-            print(content, end="", flush=True)
+            if on_token is not None:
+                on_token(content)
+            else:
+                print(content, end="", flush=True)
     if acc is None:
         raise RuntimeError("模型串流未回傳任何 chunk")
     return message_chunk_to_message(acc)
@@ -547,12 +540,12 @@ def _keep_image_only_on_current_human(messages: list[BaseMessage]) -> list[BaseM
 
 
 def get_token_budget() -> int:
-    raw = os.getenv("TOKEN_BUDGET", "200000")
+    raw = os.getenv("TOKEN_BUDGET", "100000")
     try:
         n = int(raw)
-        return n if n > 0 else 200000
+        return n if n > 0 else 100000
     except ValueError:
-        return 200000
+        return 100000
 
 
 def estimate_message_tokens(message: BaseMessage) -> int:
@@ -677,6 +670,7 @@ def run_react_turn(
     past: list[BaseMessage],
     human_message: HumanMessage,
     history_human: HumanMessage | None = None,
+    on_token: Callable[[str], None] | None = None,
 ) -> tuple[str, list[BaseMessage]]:
     """單輪 ReAct：stream → tool_calls → ToolMessage 迴圈，直到純文字回覆。
 
@@ -693,7 +687,7 @@ def run_react_turn(
 
     while True:
         messages = messages_for_model(messages)
-        response = _stream_model_response(llm_tools, messages)
+        response = _stream_model_response(llm_tools, messages, on_token=on_token)
         messages.append(response)
         print()
 
@@ -1084,91 +1078,66 @@ def ensure_budget_before_react(
 
 
 # ---------------------------------------------------------------------------
-# 進入點（WG-12～21 合併主迴圈）
+# WG-22：`Agent` 封裝（核心對外 API）
 # ---------------------------------------------------------------------------
 
 
-def print_wg01_to_03_banner() -> None:
-    """WG-01～03 最小示範（不呼叫 API）。"""
-    agent_name = "法鬥超人"
-    tip = f"（WG-02/03 示範）Hello，我是 {agent_name}，準備進入課堂對話。"
-    print(tip)
+class Agent:
+    """WG-12～21 執行邏輯之單一入口；不含 CLI `input()`。"""
 
+    def __init__(
+        self,
+        *,
+        session_path: str,
+        history: list[BaseMessage],
+        session_meta: dict[str, Any] | None,
+        last_consolidated: int,
+        llm: ChatOpenAI,
+        llm_tools: Any,
+    ) -> None:
+        self.session_path = session_path
+        self.history = history
+        self.session_meta = session_meta
+        self.last_consolidated = last_consolidated
+        self.llm = llm
+        self.llm_tools = llm_tools
 
-def main() -> None:
-    load_dotenv()
-    api_key = os.getenv("OPENAI_API_KEY")
+    @classmethod
+    def from_env(cls, *, session_path: str | None = None) -> Agent:
+        load_dotenv()
+        if not os.getenv("OPENAI_API_KEY"):
+            raise RuntimeError(
+                "尚未讀到 OPENAI_API_KEY；請檢查 .env 或系統環境變數。"
+            )
 
-    if api_key:
-        print(
-            "已讀到 API 金鑰設定（內容不顯示）；進入對話"
-            "（串流 + 工具 + JSONL + 預算裁切 + WG-21 附圖）。"
+        resolved_path = session_path or os.getenv(
+            "SESSION_JSONL_PATH", "session.jsonl"
         )
-    else:
-        print("尚未讀到 OPENAI_API_KEY；請檢查 .env 或系統環境變數。")
-        return
-
-    print(
-        "（WG-21 附圖：先輸入 `/image 相對路徑`，再輸入本輪文字；"
-        "或單行 `/image 路徑 問題`。）"
-    )
-
-    # WG-16：啟動載入
-    session_path = os.getenv("SESSION_JSONL_PATH", "session.jsonl")
-    history, session_meta = load_session_jsonl(session_path)
-    last_consolidated = (
-        int(session_meta.get("last_consolidated", 0) or 0) if session_meta else 0
-    )
-    if history:
-        print(
-            f"已從 {session_path!r} 載入 {len(history)} 則訊息（WG-16）；"
-            f" last_consolidated={last_consolidated}（WG-17）。"
+        history, session_meta = load_session_jsonl(resolved_path)
+        last_consolidated = (
+            int(session_meta.get("last_consolidated", 0) or 0)
+            if session_meta
+            else 0
         )
-    else:
-        print(f"尚無可載入歷史或檔不存在；自空 history 開始（WG-15 寫入）。")
+        llm = ChatOpenAI(model="gpt-5.4-mini", temperature=0.2)
+        llm_tools = llm.bind_tools(TOOLS)
+        return cls(
+            session_path=resolved_path,
+            history=history,
+            session_meta=session_meta,
+            last_consolidated=last_consolidated,
+            llm=llm,
+            llm_tools=llm_tools,
+        )
 
-    # WG-12～21：全程同一 model（gpt-5.4-mini）
-    llm = ChatOpenAI(model="gpt-5.4-mini", temperature=0.2)
-    llm_tools = llm.bind_tools(TOOLS)
-    print(
-        f"（WG-17 TOKEN_BUDGET={get_token_budget()}，"
-        f"WG-19 整併目標 ≤ {get_token_budget() // 2} 字元；以字元長度模擬 token。）"
-    )
-
-    pending_image: str | None = None
-
-    while True:
-        user_line = input("\n你：").strip()
-        if user_line.lower() in ("quit", "exit", "q"):
-            print("再見！")
-            break
-        if not user_line:
-            continue
-
-        image_rel: str | None = None
-        user_text = user_line
-
-        if user_line.startswith("/image "):
-            rest = user_line[len("/image ") :].strip()
-            if not rest:
-                print("（用法：`/image 相對路徑`，下一行輸入文字；或 `/image 路徑 問題`）")
-                continue
-            parts = rest.split(maxsplit=1)
-            image_rel = parts[0]
-            if len(parts) > 1:
-                user_text = parts[1].strip()
-            else:
-                pending_image = image_rel
-                print(f"（已選附圖 {image_rel!r}，請輸入本輪文字）")
-                continue
-        elif pending_image is not None:
-            image_rel = pending_image
-            pending_image = None
-            user_text = user_line
-
-        if not user_text and not image_rel:
-            continue
-
+    def chat(
+        self,
+        user_text: str,
+        *,
+        image_path: str | None = None,
+        on_token: Callable[[str], None] | None = None,
+    ) -> str:
+        image_rel = image_path
         media_type: str | None = None
         if image_rel:
             try:
@@ -1179,44 +1148,44 @@ def main() -> None:
         history_human = history_human_placeholder(user_text, image_rel, media_type)
         human_for_send = build_human_message_for_current_turn(user_text, image_rel)
 
-        # WG-19：占位版 human 參與預算估算
-        prev_consolidated = last_consolidated
-        last_consolidated = ensure_budget_before_react(
-            llm, history, last_consolidated, history_human
+        prev_consolidated = self.last_consolidated
+        self.last_consolidated = ensure_budget_before_react(
+            self.llm, self.history, self.last_consolidated, history_human
         )
-        if last_consolidated != prev_consolidated:
-            if session_meta is None:
-                session_meta = _default_metadata()
-            session_meta = save_session_jsonl(
-                session_path, history, session_meta, last_consolidated
+        if self.last_consolidated != prev_consolidated:
+            if self.session_meta is None:
+                self.session_meta = _default_metadata()
+            self.session_meta = save_session_jsonl(
+                self.session_path,
+                self.history,
+                self.session_meta,
+                self.last_consolidated,
             )
-        system_text = build_system_prompt()
-        past = history[last_consolidated:]
 
-        # WG-13＋WG-21：ReAct 一輪（送模含 system + past + 本輪多模態 user）
-        print("\n助手：", end="", flush=True)
-        _reply_text, turn_messages = run_react_turn(
-            llm_tools,
+        system_text = build_system_prompt()
+        past = self.history[self.last_consolidated:]
+
+        final_text, turn_messages = run_react_turn(
+            self.llm_tools,
             system_text,
             past,
             human_for_send,
             history_human,
+            on_token=on_token,
         )
-        print()
 
-        history.extend(turn_messages)
+        self.history.extend(turn_messages)
 
-        # WG-15：整檔覆寫 JSONL（含 last_consolidated）
-        if session_meta is None:
-            session_meta = _default_metadata()
-        session_meta = save_session_jsonl(
-            session_path, history, session_meta, last_consolidated
+        if self.session_meta is None:
+            self.session_meta = _default_metadata()
+        self.session_meta = save_session_jsonl(
+            self.session_path,
+            self.history,
+            self.session_meta,
+            self.last_consolidated,
         )
         print(
-            f"（已寫入 {session_path!r}，共 {len(history)} 則累積訊息；"
-            f" last_consolidated={last_consolidated}。）"
+            f"（已寫入 {self.session_path!r}，共 {len(self.history)} 則累積訊息；"
+            f" last_consolidated={self.last_consolidated}。）"
         )
-
-
-if __name__ == "__main__":
-    main()
+        return final_text

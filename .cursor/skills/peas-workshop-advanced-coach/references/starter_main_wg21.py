@@ -1,8 +1,8 @@
 """
-Agent Workshop 標準程式（reference_agent2.py）— WG-12～21 合併示範。
+WG-21 完成起點（starter_main_wg21.py）— peas-workshop-advanced-coach 內唯讀。
 
-對齊 `challenges-agent-workshop.md`（**WG-12～21**）；教練驗收與 Spec 以本檔為準。
-學生實作請改專案根 **`main.py`**，勿直接修改本檔。
+內容同專案根 `W1-W21.py`（**WG-12～21** 單檔合併藍本）；WG-22 拆檔**前**起點。
+僅在專案根 `main.py` 空白且尚未拆檔時，教練可複製全文至 `main.py`；勿直接修改本檔。
 
 - WG-12：`SystemMessage` 與 `history` 分離（system 不進 JSONL；`build_system_prompt()` 見 WG-20）
 - WG-13：`get_identity`（【解題方式】【依賴管理】）、`@tool`、`bind_tools`、ReAct 內層迴圈、`ToolMessage`
@@ -15,7 +15,7 @@ Agent Workshop 標準程式（reference_agent2.py）— WG-12～21 合併示範�
 - WG-20：`SkillsLoader`、`SKILLS_LOADER`、Active／Skills 併入 `build_system_prompt()`
 - WG-21：多模態附圖、`image_path` JSONL、history 占位、`messages_for_model` 剝歷史圖
 
-預設對話檔：`session_wiki_wg.jsonl`（可用環境變數 `SESSION_JSONL_PATH` 覆寫）
+預設對話檔：`session.jsonl`（可用環境變數 `SESSION_JSONL_PATH` 覆寫）
 附圖：輸入 `/image 相對路徑` 後再輸入本輪文字；與全檔相同 `gpt-5.4-mini`（須支援 vision）。
 """
 

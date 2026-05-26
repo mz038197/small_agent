@@ -895,7 +895,7 @@ JSONL 輔助函式見示範檔第 282～364 行；ReAct 見第 101～144 行；`
   - 先定義 `**estimate_message_tokens(message: BaseMessage) -> int`**（本題即 `**len(message.content)**` 當 `**content` 為 `str**`；否則課堂自訂規則），`**cost` 與 `pick_consolidation_boundary` 必須共用**此定義。
   - `**cost = len(system_str) + sum(estimate_message_tokens(m) for m in msgs)`**。
   其中 `**system_str**` 與本輪送模用 system 字串一致（**WG-12** 可為 `**build_system_prompt()`**；**WG-13～18** 為 `**build_system_prompt()`**（內含 `**get_identity()`**）；**WG-19** 起同一函式另併長期記憶；**WG-20** 起再併 **Skills**，仍**無參數**）；`**msgs**` 為 `***past0`（或裁切後的 `past`）與本輪 `human_message**` 之**所有**訊息（**含** `**ToolMessage`**；本題 `**estimate_message_tokens**` 以 `**content` 字串長度**為主，**選修**：對 `**tool_calls`** 另加權）。
-- **`get_token_budget() -> int`**：讀取環境變數 `**TOKEN_BUDGET**`（預設 `**100000**`）；無效或非正整數時回退預設。判斷是否超線、換算 `**tokens_to_remove**` 時皆呼叫此函式（或等價實作），**勿**在多處重複解析 env。
+- **`get_token_budget() -> int`**：讀取環境變數 `**TOKEN_BUDGET**`（預設 `**200000**`）；無效或非正整數時回退預設。判斷是否超線、換算 `**tokens_to_remove**` 時皆呼叫此函式（或等價實作），**勿**在多處重複解析 env。
 - **先判斷再裁切**：
   - 先令 `**past0 = history[last_consolidated:]`**，再算 `**cost**`（`**System` 字串** + `**past0`** + **本輪 `human_message`**），公式同前 `**len` 加總**。
   - 令 `**budget = get_token_budget()**`。
