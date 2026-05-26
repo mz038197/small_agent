@@ -1,9 +1,10 @@
 # Agentic AI Workshop — From Zero to Hero
 
 - **基礎挑戰（手把手建立 Agent）（WG-01～WG-16）**：從 Python 入門到「能與模型對話、能呼叫工具、能把對話寫入／讀回檔案」的**概念與實作題**；請依題號順序完成，每題對照藍本在教師指定檔中實作與驗收。
-- **進階挑戰（AI Coding 實戰）（WG-17～WG-21）**：在基礎段之上，練習上下文裁切、送模前整理、長期記憶、Skills 與多模態等**進階 Agent 行為**；題目較複雜，**建議搭配 AI 協作編程**（如 Cursor）完成；建議基礎段通過後再接續。
+- **進階挑戰（AI Coding 實戰）（WG-17～WG-22）**：在基礎段之上，練習上下文裁切、送模前整理、長期記憶、Skills、多模態與 **Agent 核心拆分** 等**進階 Agent 行為**；題目較複雜，**建議搭配 AI 協作編程**（如 Cursor）完成；建議基礎段通過後再接續。
 - **全域串流要求（WG-10 起）**：除工具判斷、工具執行、JSONL 載入、長期記憶整併等**內部步驟**可使用 `invoke` 外，凡是「最後要顯示給使用者看的 assistant 文字回覆」都必須使用 `stream` 串流輸出；不得只以 `print(response.content)` 一次印出最終回答。若特定模型／供應商路徑暫不支援串流（例如部分 vision 驗收環境），須在程式註解或驗收說明中明確標示退回 `invoke` 的原因。
 - **合併示範 `reference_agent2.py`（WG-12～21）之模型**：對話、ReAct、長期整併、附圖等**全程共用** **`ChatOpenAI(model="gpt-5.4-mini", temperature=0.2)`**；**不**另設 chat／consolidation／vision 等不同 model 名或環境變數分流。
+- **WG-22 拆檔後**：Agent 邏輯在 **`agent_core.py`**；CLI 在 **`main.py`**（學生）／薄 **`reference_agent2.py`**（教師對照）。**本規格不含 Web UI**（Streamlit 等為課堂口頭選修專題，不在驗收）。
 
 ## ITS Python 基礎概念
 
@@ -44,6 +45,7 @@
 | 進階 | **WG-19** | 舊對話濃縮成長期備忘——整併與每輪讀回組裝 | `memory/MEMORY.md`（nanobot 四節）、`HISTORY.md`、`**prompts/memory_merge.md**`；**先規劃** `final_idx` 再一次 consolidation；`**is_default_memory_template**`；`## Long-term Memory` 併入 **system**（延續 **WG-13** `**get_identity()`**）。 | 5、6 |
 | 進階 | **WG-20** | 技能卡進工具箱——最小 SkillsLoader 與 system prompt 注入 | 模組級 `**SKILLS_LOADER**`（對齊 **WG-14** `**WORKSPACE**`）；`skills/<name>/SKILL.md`、frontmatter 摘要、workspace／builtin 合併、同名覆蓋；`**build_system_prompt()`**（簽名不變）內併 Skills，依序：**課堂基底** → **長期記憶**（若有）→ `**# Active Skills**` → `**# Skills**`；大段間 `**---**`。ReAct 工具仍依 **WG-13**／**WG-14** 之 `**BaseTool.invoke**`。 | 4、5、6 |
 | 進階 | **WG-21** | 眼睛也進對話——多模態附圖、`image_path` 與 JSONL 載回閉環 | JSONL 之 `**user**` 列僅存 **`image_path`**／`**media_type**`（**不**存長 base64）；冷啟動載入 `**history**` 為**純文字占位**；**送模層** `**messages_for_model**`：**僅本輪**可含 data URL 圖區塊、**歷史**舊附圖不得重送；`**open(..., "rb")**`／base64 僅在本輪組圖時使用；與全檔相同 **`gpt-5.4-mini`**（須支援 vision）。 | 4、5、6 |
+| 進階 | **WG-22** | 核心與殼分家——`agent_core.py` 與 `Agent.chat` | 自 **`reference_agent2.py`（WG-12～21 單檔）** 拆出 **`agent_core.py`**；`**class Agent**`、`**Agent.from_env()`**、`**chat(user_text, *, image_path=..., on_token=...)`**；`**main.py`** 僅 CLI（`input`／`print`、`**/image`** 解析）；行為與拆前等價；**不含 Streamlit**。 | 5、6、7 |
 
 ---
 
@@ -1768,6 +1770,211 @@ def messages_for_model(
         out.append(mm)
     out.append(copy.deepcopy(human_message))
     return out
+```
+
+---
+
+## Challenge WG-22：核心與殼分家——`agent_core.py` 與 `Agent.chat`
+
+### 情境
+
+**WG-12～21** 已把 ReAct、JSONL、預算整併、Skills、附圖等收在**單一**合併示範 **`reference_agent2.py`**（約千行）。實務上要接 Web UI、測試或第二種入口時，需要把「**Agent 怎麼想、怎麼記**」與「**終端怎麼問**」分開。
+
+本題要求：在**不改變對外行為**的前提下，將 **WG-12～21 全部執行邏輯**遷入 **`agent_core.py`**，並以 **`class Agent`** 對外提供**單一**入口 **`chat(...)`**；**`main.py`** 只保留 CLI（`input`／`print`、離開指令、**WG-21** **`/image`** 解析）。
+
+**本題不在挑戰規格內**：Streamlit／Gradio 等 Web UI（課堂可另作口頭選修專題，用已拆好的 **`Agent`** 做應用；**不**納入本題驗收）。
+
+**驗收基準**：拆檔後 **`uv run main.py`**（或教師薄 **`reference_agent2.py`**）之對話、工具、JSONL、整併、附圖行為，與拆前 **`reference_agent2.py`（WG-12～21 單檔）** 等價（允許差異：僅檔案位置、**`Agent`** 封裝、註解）。
+
+---
+
+### 規格
+
+#### 先修與依賴
+
+- 須已完成 **WG-12～21**（以拆前 **`reference_agent2.py`** 為對照藍本；含 **ReAct**、JSONL、**WG-19** 整併、**WG-21** **`image_path`**）。
+- 本題為 **AI Coding 實戰／重構題**：規格以**可機讀契約**為主；Coding Agent 實作時**不得**自行增刪檔名、改 **`Agent`** 公開 API、或引入本題未列之框架。
+
+#### 檔案與職責（必守）
+
+| 路徑 | 角色 | 必含 | 不得含 |
+| --- | --- | --- | --- |
+| **`agent_core.py`** | Agent 核心（**必建**） | **`class Agent`** 及 **WG-12～21 全部執行邏輯**（見下方遷移表） | **`input()`**；**`if __name__ == "__main__"`** 互動主迴圈 |
+| **`main.py`** | 學生 CLI 進入點（**必改**） | **`Agent.from_env()`**、**`while`** 讀 **`input`**、**`/image`** 解析、呼叫 **`agent.chat(...)`**、離開指令 | **`run_react_turn`**、**`save_session_jsonl`**、**`ensure_budget_before_react`** 等核心邏輯（須在 core） |
+| **`reference_agent2.py`** | 教師拆後薄 CLI（**對照**；學生勿改） | 與 **`main.py`** 同責任之 CLI；**`from agent_core import Agent`** | 與 **`agent_core.py`** 重複之 Agent 邏輯 |
+
+- **不得**另建 **`agent.py`**、**`AgentSession`**、**`ChatBot`** 等替代檔名／類名取代 **`Agent`**／**`agent_core.py`**。
+- **不得**把 **WG-12～21** 邏輯留一份在 **`main.py`**、一份在 **`agent_core.py`**（**單一真相來源**在 core）。
+
+#### 公開 API 契約（`agent_core.py`）
+
+**類別名**必須為 **`Agent`**（不可改名）。
+
+**1. 工廠方法**
+
+```python
+@classmethod
+def from_env(cls, *, session_path: str | None = None) -> Agent:
+    ...
+```
+
+- **必須**在 **`from_env`** 內呼叫 **`load_dotenv()`**。
+- **必須**檢查 **`OPENAI_API_KEY`**：若不存在，**必須**抛出 **`RuntimeError`**（訊息須提示檢查 `.env`；**不得**在 core 內用 **`input`**）。CLI 捕捉後 **`print`** 即可。
+- **`session_path`**：省略時讀 **`os.getenv("SESSION_JSONL_PATH", "session_wiki_wg.jsonl")`**（與拆前一致）。
+- **必須**在 **`from_env`** 內完成拆前 **`main()`** 啟動段之等價初始化：載入 JSONL（**WG-16**）、建立 **`ChatOpenAI(model="gpt-5.4-mini", temperature=0.2)`**、**`bind_tools(TOOLS)`**、還原 **`last_consolidated`** 等 **`Agent`** 實例狀態。
+
+**2. 單輪對話**
+
+```python
+def chat(
+    self,
+    user_text: str,
+    *,
+    image_path: str | None = None,
+    on_token: Callable[[str], None] | None = None,
+) -> str:
+    ...
+```
+
+| 項目 | 規定 |
+| --- | --- |
+| **`user_text`** | 本輪使用者文字（可為空字串，但若 **`image_path`** 亦為空則 CLI 不應呼叫） |
+| **`image_path`** | 可選，相對**專案根**之路徑；語意同 **WG-21**（core 內 **`build_human_message_for_current_turn`**／占位 **`history_human`**） |
+| **`on_token`** | 可選；**`None`** 時 assistant 串流 token **必須**與拆前相同以 **`print(..., end="", flush=True)`** 輸出 |
+| **`on_token` 非 `None`** | 每收到一段 assistant **文字** token，**必須**呼叫 **`on_token(token_str)`**，**且不得**再對同一段 token **`print`** |
+| **回傳值** | 本輪 ReAct 結束後 assistant **最終文字**（**`str`**，同拆前 **`run_react_turn`** 之 **`final_text`**） |
+| **單輪內必做** | 與拆前 **`main()`** 一輪等價：**WG-19** **`ensure_budget_before_react(llm, ...)`**（**`llm`** 為同一實例）、**WG-13** **`run_react_turn`**、**WG-15** **`save_session_jsonl`**、**`history.extend(turn_messages)`** |
+| **模型** | **全程** **`gpt-5.4-mini`**；**不得**另建第二 model 名或 **`consolidation_llm`** 變數指向不同 model |
+
+**3. 串流與工具輸出**
+
+- **Assistant 可見回覆**：仍須 **`stream`**（**WG-10**）；經 **`_stream_model_response`**（或等價）累積為 **`AIMessage`**。
+- **`on_token` 為 `None`**：行為與拆前 **`reference_agent2.py`** 一致（含 CLI 在 **`chat`** 前 **`print("\n助手：", end="", flush=True)`** 之慣例——此 **`print`** 留在 **`main.py`**，不在 core 強制）。
+- **工具執行結果**、**WG-19 整併規劃／進行中** **`print`**、**JSONL 寫入提示**：**允許**留在 **`agent_core.py`**，內容與拆前等價即可（**不**強制改為 callback）。
+
+#### 遷移清單（必須位於 `agent_core.py`）
+
+自拆前 **`reference_agent2.py`** 遷入 **`agent_core.py`**（名稱可保留；**邏輯不得缺失**）：
+
+| 區塊 | 代表符號（非 exhaustive） |
+| --- | --- |
+| WG-13～14 | **`get_identity`**、**`TOOLS`**、**`@tool`** 五支＋**`add_numbers`**、**`_run_bound_tool`**、**`resolve_workspace_path`**、**`WORKSPACE`** |
+| WG-15～16 | **`save_session_jsonl`**、**`load_session_jsonl`**、**`_message_to_jsonl_line`**、**`_row_to_message`**、**`_serialize_tool_calls`**、**`_default_metadata`** |
+| WG-21 | **`history_human_placeholder`**、**`build_human_message_for_current_turn`**、**`human_fields_for_jsonl`**、**`load_user_row_to_history_human`**、**`PROJECT_ROOT`**／**`resolve_project_image_path`** 等 |
+| WG-17 | **`get_token_budget`**、**`estimate_message_tokens`**、**`message_cost`**、**`pick_consolidation_boundary`** |
+| WG-18＋21 送模 | **`messages_for_model`**（含歷史剝圖；合併示範以 **`_keep_image_only_on_current_human`** 或等價邏輯） |
+| WG-13 ReAct | **`run_react_turn`**、**`_stream_model_response`**（**須**支援 **`on_token`** 參數或等價 hook） |
+| WG-19 | **`memory/*` helpers**、**`ensure_budget_before_react`**、**`_consolidate_pack`** 等 |
+| WG-20 | **`SkillsLoader`**、**`SKILLS_LOADER`**、**`build_system_prompt`** |
+
+**留在 `main.py`（及教師薄 CLI）者**：**`main()`** 迴圈、**`input`**、離開指令（**`quit`／`exit`／`q`**）、**WG-21** **`/image`**／**`pending_image`** 解析、啟動橫幅與金鑰錯誤 **`print`**、每輪 **`print("\n助手：", ...)`** 後呼叫 **`agent.chat(...)`**。
+
+#### 禁止項（Coding Agent 必讀）
+
+- **`agent_core.py` 內不得 `input()`**。
+- **不得**引入 **Streamlit**／**Gradio** 或本題未要求之 Web 框架於必交檔。
+- **不得**使用 **`AgentSession`**、**`Chat`**、**`Bot`** 等類名取代 **`Agent`**。
+- **不得**為整併另建不同 **`model=`**（須與 **`chat`** 共用 **`gpt-5.4-mini`** 之 **`llm`**）。
+- **不得**在 **`main.py`** 複製 **ReAct**／JSONL／整併迴圈；**單輪**只能經 **`agent.chat`**。
+- **不得**刪改 **WG-21** 三層語義（JSONL 只存路徑、**`history`** 占位、本輪送模多模態）。
+
+#### 模型
+
+- 與 **WG-12～21** 相同：**全程 `ChatOpenAI(model="gpt-5.4-mini", temperature=0.2)`**；**不**另設環境變數分流。
+
+---
+
+### 驗收條件
+
+- 專案根存在 **`agent_core.py`**，可 **`from agent_core import Agent`**；存在 **`main.py`** 作 **`uv run main.py`** 進入點。
+- **`Agent.from_env()`** 在無 **`OPENAI_API_KEY`** 時抛出 **`RuntimeError`**；**`main.py`** 捕捉後印提示並結束（**不**崩潰 trace 即可）。
+- **有金鑰**時：CLI 行為與拆前一致——多輪對話、**`quit`** 離開、工具呼叫、JSONL 寫入／冷啟動載回、**WG-19** 整併提示、**`/image`** 附圖與 JSONL **`image_path`**（**WG-21**）。
+- **`agent.chat("…")`** 回傳本輪 assistant 最終文字；**`history`**／JSONL 在 core 內累積；關閉再開可接續。
+- **`on_token`**：傳入 **`on_token=lambda s: ...`** 時，assistant 串流文字**只**進 callback、**不**再 **`print`** 同段 token（可寫最小腳本或測試說明驗證）。
+- **無** **`input()`** 出現在 **`agent_core.py`**（`grep` 或檢視）。
+- 能指出：**`run_react_turn`**／**`save_session_jsonl`** 等僅在 **`agent_core.py`**，**`main.py`** 僅呼叫 **`Agent.chat`**。
+- （教師）拆後 **`reference_agent2.py`** 為薄 CLI，**不**含與 **`agent_core.py`** 重複之核心函式定義。
+
+---
+
+### 藍本對應（拆後目標結構）
+
+拆前對照：**`reference_agent2.py`（WG-12～21 單檔，~1223 行）**。拆後教師參考：
+
+```text
+專案根/
+  agent_core.py      # Agent + WG-12～21 全部邏輯
+  main.py            # 學生 CLI（本題實作）
+  reference_agent2.py # 教師薄 CLI（import Agent；邏輯不重複）
+  memory/ …          # 與 WG-19 相同
+  prompts/ …
+  skills/ …
+  session_wiki_wg.jsonl
+```
+
+**`Agent` 骨架（公開 API 必須一致；其餘實作遷移自拆前藍本）：**
+
+```python
+# agent_core.py
+from __future__ import annotations
+
+from collections.abc import Callable
+
+class Agent:
+    @classmethod
+    def from_env(cls, *, session_path: str | None = None) -> Agent:
+        load_dotenv()
+        if not os.getenv("OPENAI_API_KEY"):
+            raise RuntimeError("尚未讀到 OPENAI_API_KEY；請檢查 .env 或系統環境變數。")
+        # 載入 JSONL、建立 llm + llm_tools、初始化 history / session_meta / last_consolidated
+        ...
+
+    def chat(
+        self,
+        user_text: str,
+        *,
+        image_path: str | None = None,
+        on_token: Callable[[str], None] | None = None,
+    ) -> str:
+        # 一輪：ensure_budget_before_react → run_react_turn → save_session_jsonl → extend history
+        # WG-21：image_path → history_human + human_for_send
+        # on_token 傳入 _stream_model_response（或等價）
+        ...
+```
+
+```python
+# main.py（薄 CLI 示意）
+from agent_core import Agent
+
+def main() -> None:
+    try:
+        agent = Agent.from_env()
+    except RuntimeError as e:
+        print(e)
+        return
+    pending_image: str | None = None
+    while True:
+        user_line = input("\n你：").strip()
+        # quit / /image 解析 …
+        print("\n助手：", end="", flush=True)
+        reply = agent.chat(user_text, image_path=image_rel)
+        print()
+
+if __name__ == "__main__":
+    main()
+```
+
+**`_stream_model_response` 簽名（須擴展 `on_token`；合併示範拆後須對齊）：**
+
+```python
+def _stream_model_response(
+    llm_tools: ChatOpenAI,
+    messages: list[BaseMessage],
+    on_token: Callable[[str], None] | None = None,
+) -> AIMessage:
+    ...
+    # on_token is None → print(token, end="", flush=True)
+    # else → on_token(token)
 ```
 
 ---
