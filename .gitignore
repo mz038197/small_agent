@@ -49,6 +49,7 @@ env/
 session.jsonl
 session_*.jsonl
 .worktrees/
+uploads/
 
 # 環境變數（含 API key，勿提交）
 .env
