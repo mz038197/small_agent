@@ -465,15 +465,6 @@ def pick_consolidation_boundary(
     return last_boundary
 
 
-def request_cost_chars(
-    system_text: str,
-    past: list[BaseMessage],
-    human_message: HumanMessage,
-) -> int:
-    """WG-17／WG-19 共用成本公式。"""
-    return len(system_text) + message_cost([*past, human_message])
-
-
 # ---------------------------------------------------------------------------
 # WG-18：送模 transcript 修復（完整 history 與 messages_for_model 副本分離）
 # ---------------------------------------------------------------------------
@@ -623,8 +614,6 @@ def _message_plaintext(message: BaseMessage) -> str:
             if isinstance(tc, dict)
         ]
         extra = f" [tool_calls: {', '.join(names)}]"
-    if len(content) > 2000:
-        content = content[:2000] + "…"
     return f"{role}{extra}: {content}"
 
 
@@ -718,7 +707,7 @@ def ensure_budget_before_react(
 ) -> int:
     """WG-19：ReAct 前外層迴圈 — Phase A 規劃 final_idx，Phase B 整包整併 + 推游標。
 
-    僅在 cost <= TOKEN_BUDGET // 2 時 return；呼叫端可直接進入 ReAct，無需再驗證。
+    僅在 cost <= get_token_budget() // 2 時 return；呼叫端可直接進入 ReAct，無需再驗證。
     """
     target = get_token_budget() // 2
 
@@ -726,7 +715,7 @@ def ensure_budget_before_react(
         # Phase A — 規劃（不呼叫 consolidation LLM）
         system_text = build_system_prompt()
         past0 = history[last_consolidated:]
-        cost = request_cost_chars(system_text, past0, human_message)
+        cost = len(system_text) + message_cost([*past0, human_message])
         if cost <= target:
             return last_consolidated
 

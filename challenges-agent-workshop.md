@@ -618,7 +618,7 @@ if __name__ == "__main__":
 
 ### 情境
 
-**WG-11** 已能以 `**HumanMessage`／`AIMessage`** 串列維持多輪脈絡，但尚未在送模串列**最前**固定放入「課堂規則、人設」等**系統層**文字。本課合併示範（`**wiki_wg_workshop.py**`）將這段收斂成 `**build_system_prompt() -> str**`；`**run_react_turn**` 收到 `**system_text**` 後在內部組 `**SystemMessage**`，且**不**把 system 寫進 **JSONL**。
+**WG-11** 已能以 `**HumanMessage`／`AIMessage`** 串列維持多輪脈絡，但尚未在送模串列**最前**固定放入「課堂規則、人設」等**系統層**文字。本課合併示範（`**reference_agent2.py**`）將這段收斂成 `**build_system_prompt() -> str**`；`**run_react_turn**` 收到 `**system_text**` 後在內部組 `**SystemMessage**`，且**不**把 system 寫進 **JSONL**。
 
 本題在**延續 WG-11 的串流節奏**、且**仍可不寫入磁碟**的前提下，練習 `**system_text` 與 `history` 分離**：`**history: list[BaseMessage]**` 只累積 **Human／AI／Tool**（併 **WG-13** 後）；每輪送模為 `**[SystemMessage(system_text), *history, human_message]**`（由 `**run_react_turn**` 組裝）。完成 **WG-15～16** 後會再接 `**load_session_jsonl`／`save_session_jsonl**`。
 
@@ -629,7 +629,7 @@ if __name__ == "__main__":
 - 延續 **WG-07～11**：`def main()`、`load_dotenv`、無金鑰則印提示後 `**return`**；有金鑰時 `**ChatOpenAI**`、`**while True**`、`input()`、結束指令、空白行 `**continue**`。
 - 實作 `**def build_system_prompt() -> str**`（**WG-13** 起自本函式內抽出 `**get_identity()**`；**WG-19** 起併長期記憶；**WG-20** 起於 `**build_system_prompt()`** 內透過模組級 `**SkillsLoader**` 併 **Skills**，**簽名維持無參數**）。回傳字串須含：（1）**課堂規則**（須含「**繁體中文**」）；（2）**【本場次顯示名稱】** 與 `**nick**`（如 `**法鬥超人**`）。格式：`"{system_text}\n\n【本場次顯示名稱】{nick}"`。**本題不要求** `**get_identity()**`、**【解題方式】**、**【依賴管理】**（留 **WG-13**）。
 - 在 `**main()`** 進入 `**while`** 前：`system_text = build_system_prompt()`；`**history: list[BaseMessage] = []**`（啟動時**不**從檔案載入）。**不要**把 `**SystemMessage`** `**append` 進 `history**`。
-- **併 WG-13 起**：每輪呼叫 `**run_react_turn(llm_tools, system_text, history, user_text)**`；system 由該函式內包成 `**SystemMessage(content=system_text)**` 送模。
+- **併 WG-13 起**：每輪呼叫 `**run_react_turn(llm_tools, system_text, past, user_text)**`（**WG-13～16** 第三參數可傳 `**history**`）；system 由該函式內包成 `**SystemMessage(content=system_text)**` 送模。
 - **禁止**：把 system 當一般對話列寫進 `**history**` 或 **JSONL**（留 **WG-15**／**WG-16**）。
 - **不要求**：`**platform.system()`**／【exec 注意】／【解題方式】／【依賴管理】（留 **WG-13** `**get_identity()`**；跨平台 shell 細節可於 **WG-14** 工具 docstring 選修補足）。
 
@@ -655,7 +655,7 @@ def build_system_prompt() -> str:
 # main() 內（併 WG-13 前可先 stream 純文字；併 WG-13 後）：
 system_text = build_system_prompt()
 history: list[BaseMessage] = []
-# run_react_turn(llm_tools, system_text, history, user_text)
+# run_react_turn(llm_tools, system_text, past, user_text)
 # 內部：messages = [SystemMessage(content=system_text), *history, human_message]
 ```
 
@@ -672,13 +672,13 @@ history: list[BaseMessage] = []
 
 ### 規格
 
-- **延續 WG-12** 之 `**build_system_prompt()`** 與 `**history**` 分離；`**run_react_turn(llm_tools, system_text, history, user_text)**` 在內部建立 `**SystemMessage(content=system_text)**`。
+- **延續 WG-12** 之 `**build_system_prompt()`** 與 `**history**` 分離；`**run_react_turn(llm_tools, system_text, past, user_text)**` 在內部建立 `**SystemMessage(content=system_text)**`（第三參數名 **`past`**，對齊 `**reference_agent2.py**`；**WG-13～16** 呼叫時可傳 `**main()`** 之 `**history**`，語意上 `**past**` 即完整已累積串列）。
 - **自 WG-12 抽出 `**get_identity() -> str**`**：`build_system_prompt()` 改為 `return get_identity()`（**WG-19** 起再併 `memory_block_for_system()` 等）。`**get_identity()` 回傳字串**須含：（1）**課堂規則**（須含「**繁體中文**」）；（2）**【解題方式】**：可重複驗證的任務，優先 `**write_file**` 寫腳本再 `**exec**`（如 `**uv run python 相對路徑**`），避免只在對話口算或貼無法重跑的一次性指令；（3）**【依賴管理】**：本專案用 **uv**；新增 Python 依賴請在專案根 `**exec uv add <套件名>**`，勿用 `**pip install**`；（4）**【本場次顯示名稱】** 與 `**nick**`。**選修**：（5）**【執行環境】**／**【exec 注意】**。格式對齊 `**reference_agent2.py**`。
 - 以 `**@tool**` 定義 `**add_numbers(a: float, b: float) -> float**`；**docstring** 須說明算術須呼叫工具、不可心算（對齊示範檔繁中文案）。
 - `**TOOLS = [add_numbers]**`；`**_TOOL_BY_NAME = {t.name: t for t in TOOLS}**`；`**llm.bind_tools(TOOLS)**` 取得 `**llm_tools**`。
 - **串流輔助 `**_stream_model_response**`**：`**llm_tools.stream(messages)**` 累積 chunk（`**acc + chunk**`），邊收邊 `**print**` 文字；以 `**message_chunk_to_message(acc)**` 轉成 `**AIMessage**`（保留 `**tool_calls**`）。
 - **單輪 ReAct（`**run_react_turn**`）**：
-  1. `**messages = [SystemMessage(system_text), *history, HumanMessage(user_text)]**`；記 `**idx_turn_start = 1 + len(history)**`。
+  1. `**messages = [SystemMessage(system_text), *past, HumanMessage(user_text)]**`；記 `**idx_turn_start = 1 + len(past)**`。
   2. 呼叫 `**_stream_model_response**` → `**response**`；`**messages.append(response)**`。
   3. 若 `**response.tool_calls**` 非空：逐筆 `**_run_bound_tool(name, args)**`，`**print(f"\n[工具 {name}]\n{result}\n")**`，`**append ToolMessage(..., name=name)**`，回到步驟 2。
   4. 若無 `**tool_calls**`：`**break**`；`**turn_messages = messages[idx_turn_start:]**`；`**final_text = response.content.strip()**`；回傳 `**(final_text, turn_messages)**`。
@@ -729,8 +729,8 @@ def _stream_model_response(llm_tools, messages) -> AIMessage:
             print(chunk.content, end="", flush=True)
     return message_chunk_to_message(acc)
 
-def run_react_turn(llm_tools, system_text, history, user_text):
-    # 見 wiki_wg_workshop.py 完整實作
+def run_react_turn(llm_tools, system_text, past, user_text):
+    # 見 reference_agent2.py 完整實作
     ...
 ```
 
@@ -751,7 +751,7 @@ def run_react_turn(llm_tools, system_text, history, user_text):
 
 ### 規格
 
-- 在教師指定作答檔（或延續 `**wiki_wg_workshop.py**`）實作，依賴 **`langchain_core`**（與 **WG-13** 一致）。
+- 在教師指定作答檔（或延續 `**reference_agent2.py**`）實作，依賴 **`langchain_core`**（與 **WG-13** 一致）。
 - **保留 WG-13 之 `**add_numbers**`**；`**TOOLS**` 順序對齊示範檔：`add_numbers`、`read_file`、`write_file`、`edit_file`、`list_dir`、`exec`（共六支；對外名稱 **`exec`** 由 `@tool("exec")` 裝飾 `exec_workspace` 等實作函式）。
 - 設定 **`WORKSPACE = Path.cwd().resolve()`**；`**resolve_workspace_path**`：拒絕**絕對路徑**；`**../outside.txt**` 等須拒絕。
 - **`read_file(path, offset=1, limit=200)`**：UTF-8、帶行號；非檔案回傳錯誤。
@@ -770,7 +770,7 @@ def run_react_turn(llm_tools, system_text, history, user_text):
 
 ### 藍本對應
 
-對齊 `**wiki_wg_workshop.py**` 之 **WG-13／WG-14** 段落（`**WORKSPACE**` 至 `**_TOOL_BY_NAME**`）。`**TOOLS**` 須含 `**add_numbers**`：
+對齊 `**reference_agent2.py**` 之 **WG-13／WG-14** 段落（`**WORKSPACE**` 至 `**_TOOL_BY_NAME**`）。`**TOOLS**` 須含 `**add_numbers**`：
 
 ```python
 TOOLS = [
@@ -784,7 +784,7 @@ TOOLS = [
 _TOOL_BY_NAME = {t.name: t for t in TOOLS}
 ```
 
-其餘五支 `@tool` 實作見示範檔 `**wiki_wg_workshop.py**`（約第 45～169 行）。
+其餘五支 `@tool` 實作見示範檔 `**reference_agent2.py**`（約第 148～274 行）。
 
 
 ---
@@ -796,13 +796,13 @@ _TOOL_BY_NAME = {t.name: t for t in TOOLS}
 
 **WG-12～14** 已以 `**build_system_prompt()`** 與 `**run_react_turn**` 維持 **ReAct** 對話；關程式後 **RAM** 仍清空。本題在**沿用相同主迴圈**的前提下**只做寫檔**：每輪 `**history.extend(turn_messages)**` 後呼叫 `**save_session_jsonl**`，把 `**session_meta**` 與完整 `**history**`（含 `**tool_calls**`／`**ToolMessage**`）**整檔覆寫**到 JSONL（**第一行** `**metadata**`）。檔案長相可參考專案根 **`session.jsonl.example`**（含一般對話與 **ReAct** 一輪完整鏈）。
 
-規格與函式簽名以專案根 **`wiki_wg_workshop.py`**（**WG-15～16** 段落）為準。
+規格與函式簽名以專案根 **`reference_agent2.py`**（**WG-15～16** 段落）為準。
 
 **刻意不做**：啟動時讀舊檔（留 **WG-16**）。**WG-15 獨立驗收**時 `**main()`** 仍從空 `**history**` 開始；合併示範檔已含 **WG-16** 載入邏輯，教師可指定「本題只驗寫檔、暫不驗載回」。
 
 ### 規格
 
-- 延續 **WG-07～14**：`load_dotenv`、金鑰早退、`**build_system_prompt()`**、`**run_react_turn(llm_tools, system_text, history, user_text)**`、`**llm.bind_tools(TOOLS)**`（`**TOOLS**` 含 **WG-13** `**add_numbers**` 與 **WG-14** 五支工具，對齊示範檔）。
+- 延續 **WG-07～14**：`load_dotenv`、金鑰早退、`**build_system_prompt()`**、`**run_react_turn(llm_tools, system_text, past, user_text)**`、`**llm.bind_tools(TOOLS)**`（`**TOOLS**` 含 **WG-13** `**add_numbers**` 與 **WG-14** 五支工具，對齊示範檔；**WG-13～16** 第三參數可傳 `**history**`）。
 - **存檔路徑**：`**os.getenv("SESSION_JSONL_PATH", "session_wiki_wg.jsonl")**`（示範檔預設；可覆寫）。`**session.jsonl.example**` 僅供對照格式，**勿**當預設寫入目標。
 - **啟動（WG-15 獨立）**：`**history = []**`、`**session_meta = None**`；**禁止**呼叫 `**load_session_jsonl**`。
 - **寫檔時機**：每輪 `**run_react_turn**` 結束、`**history.extend(turn_messages)**` 之後。
@@ -822,7 +822,7 @@ _TOOL_BY_NAME = {t.name: t for t in TOOLS}
 
 ### 藍本對應
 
-對齊 **`wiki_wg_workshop.py`**：`_default_metadata`、`_serialize_tool_calls`、`_message_to_jsonl_line`、`**save_session_jsonl**`（約第 190～321 行）；`**main()`** 寫檔段落（約第 441～446 行）。JSONL 列格式另對照專案根 **`session.jsonl.example`**。**WG-15 獨立**時省略啟動的 `**load_session_jsonl**` 呼叫。
+對齊 **`reference_agent2.py`**：`_default_metadata`、`_serialize_tool_calls`、`_message_to_jsonl_line`、`**save_session_jsonl**`（約第 282～364 行）；`**main()`** 寫檔段落（約第 977～986 行）。JSONL 列格式另對照專案根 **`session.jsonl.example`**。**WG-15 獨立**時省略啟動的 `**load_session_jsonl**` 呼叫。
 
 
 ---
@@ -833,7 +833,7 @@ _TOOL_BY_NAME = {t.name: t for t in TOOLS}
 
 **WG-15** 已會寫入完整 **ReAct** 鏈。本題加上**啟動讀檔**：`**load_session_jsonl**` 還原 `**history**` 與 `**session_meta**`，使**關閉再開**可接續。讀取時壞行略過（`**json.JSONDecodeError**`）。載入後須能還原 **`session.jsonl.example`** 同構之 `**tool_calls**`／`**tool**` 鏈。
 
-合併示範檔 **`wiki_wg_workshop.py`** 已實作 **WG-12～16** 完整閉環。
+合併示範檔 **`reference_agent2.py`** 已實作 **WG-12～16** 完整閉環。
 
 ### 規格
 
@@ -853,7 +853,7 @@ _TOOL_BY_NAME = {t.name: t for t in TOOLS}
 
 ### 藍本對應
 
-完整可執行示範：**`wiki_wg_workshop.py`**（執行：`uv run wiki_wg_workshop.py`）。
+完整可執行示範：**`reference_agent2.py`**（執行：`uv run reference_agent2.py`）。
 
 關鍵入口：
 
@@ -867,7 +867,7 @@ last_consolidated = int(session_meta.get("last_consolidated", 0) or 0)
 session_meta = save_session_jsonl(session_path, history, session_meta, last_consolidated)
 ```
 
-JSONL 輔助函式見示範檔第 190～321 行；ReAct 見第 324～393 行；`**main()`** 見第 408～446 行。JSONL 列格式與 **ReAct** 載回驗收可對照專案根 **`session.jsonl.example`**。
+JSONL 輔助函式見示範檔第 282～364 行；ReAct 見第 101～144 行；`**main()`** 見第 911～986 行。JSONL 列格式與 **ReAct** 載回驗收可對照專案根 **`session.jsonl.example`**。
 
 
 ---
@@ -882,7 +882,7 @@ JSONL 輔助函式見示範檔第 190～321 行；ReAct 見第 324～393 行；`
 
 ### 規格
 
-- **延續 WG-16**：`**build_system_prompt()`**、**JSONL** 格式、`**load_session_jsonl`／`save_session_jsonl`**、每輪結束後整檔覆寫等**維持不變**（與 **WG-12～16** 示範檔 `**wiki_wg_workshop.py**` 銜接）。
+- **延續 WG-16**：`**build_system_prompt()`**、**JSONL** 格式、`**load_session_jsonl`／`save_session_jsonl`**、每輪結束後整檔覆寫等**維持不變**（與 **WG-12～16** 示範檔 `**reference_agent2.py**` 銜接）。
 - **資料分工**：
   - `**history`**：依時間順序完整保存**已發生**之 `**BaseMessage`**（`**HumanMessage`／`AIMessage`／`ToolMessage**` 等，與 **WG-15** **JSONL** 與 **WG-13** **ReAct** 一致；`**AIMessage`** 若含 `**tool_calls**` 仍屬同則物件）。啟動載入後 `**history**` 即為 `**load_session_jsonl` 回傳的串列**（**不**含 **system**）。
   - `**last_consolidated`**：**非負整數**，語意對齊長程式 `**Session.last_consolidated`**：從 `**history` 的該索引起**向後掃描，計算「若從某個**之後的使用者回合開頭**開始保留，已略過多少權重」。課堂可自 `**0`** 起；**選修**：每輪整併成功後把 `**last_consolidated`** 更新為本次回傳的 `**idx**`，減少重掃（須與實作一致）。
@@ -1075,9 +1075,14 @@ def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
   - `**MEMORY_PATH**`、`**HISTORY_PATH**` 同上目錄下之檔名
   - `**MEMORY_TEMPLATE_PATH = REFERENCE_DIR / "templates" / "memory" / "MEMORY.md"**`
   - `**MEMORY_MERGE_PROMPT_PATH = REFERENCE_DIR / "prompts" / "memory_merge.md"**`
+  - `**LONG_TERM_MEMORY_HEADING = "## Long-term Memory"**`（`**memory_block_for_system()`** 組裝時使用；勿另硬編同字串）
+- 實作 `**read_memory_md() -> str**`：讀 `**MEMORY_PATH**`；無檔回 `""`。
 - 實作 `**load_memory_merge_prompt() -> str**`：讀取 `**MEMORY_MERGE_PROMPT_PATH**` 全文作 consolidation **system**（**勿**在 `_invoke_consolidation` 內嵌長字串）。
 - 實作 `**is_default_memory_template(content: str) -> bool**`：內容為空，或與 `**MEMORY_TEMPLATE_PATH**` 讀入後 `strip()` 完全相同 → 視為**尚未寫入真實記憶**。
-- `**memory_block_for_system()`** 須在 `**not body or is_default_memory_template(body)**` 時回傳空字串（**不**注入 `**## Long-term Memory**`）。
+- `**memory_block_for_system()`** 須在 `**not body or is_default_memory_template(body)**` 時回傳空字串（**不**注入 `**LONG_TERM_MEMORY_HEADING**`）。
+- 實作 `**append_history_log(line: str) -> None**`、`**write_memory_md(content: str) -> None**`（分別追加 `**HISTORY.md**`、覆寫 `**MEMORY.md**`）。
+- 整併序列化（對齊 `reference_agent2.py`）：`**_message_plaintext(message) -> str**`、`**_chunk_to_text(chunk) -> str**`；`**AIMessage**` 含 `**tool_calls**` 時在純文字後綴 **`[tool_calls: name1, name2]`**。
+- 整併解析與 Phase B（對齊 `reference_agent2.py`）：`**_parse_consolidation_json(text) -> dict[str, str] | None**`（僅接受含 **`history_entry`**／`**memory_update`** 之 JSON；整段 parse 失敗時自回覆擷取 **`{...}`** 再試）；`**_invoke_consolidation(consolidation_llm, chunk_text, existing_memory)**`；`**_consolidate_pack(consolidation_llm, chunk, existing_memory) -> None**`（含 `**CONSOLIDATION_MAX_RETRIES**` 重試與 **`[CONSOLIDATION-FAILED]`** 寫入）。
 
 #### MEMORY.md 記什麼（內容範圍；結構對齊 nanobot）
 
@@ -1109,9 +1114,9 @@ def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
 
 **核心流程（ReAct 前）**：**先規劃邊界、再一次整併、再推游標**——**不是**「每推進一次 `last_consolidated` 就呼叫一次 consolidation LLM」。
 
-- **觸發與成本**：常數 `**TOKEN_BUDGET`** 名稱與語意同 **WG-17**（**字元長度**近似 token）。令 `**budget = get_token_budget()**`、`**target = budget // 2**`。成本為：**system 字串**（由 `**build_system_prompt()`** 產出，含下節長期記憶區塊）**+** 短期 `**past`**（`**history[last_consolidated:]**`）**+** 本輪 `**human_message`**；演算法須與 **WG-17** 成本公式**同一語意**（`**len(system_str) + message_cost([*past, human_message])**`；若改寫，請在作答檔以**註解**說明對應欄位）。
+- **觸發與成本**：以 **`get_token_budget()`** 讀 env **`TOKEN_BUDGET`**（預設 **`100000`**；語意同 **WG-17**）。令 `**target = get_token_budget() // 2**`。Phase A 成本：**`system_text = build_system_prompt()`**（含當前 `**MEMORY.md**` 讀回）、`**past0 = history[last_consolidated:]**`、`**cost = len(system_text) + message_cost([*past0, human_message])`**。
 - **ReAct 前目標**：`**cost <= target**` 才得進入 `**run_react_turn**`／主對話 `**llm.stream**`。
-- **`ensure_budget_before_react` 契約**：此函式**僅在** Phase A 確認 `**cost <= target**` 時 `**return`**。`**main()`** 在其執行完畢後**直接** `**build_system_prompt()`** → `**run_react_turn**`，**不得**再重算 cost 或加第二道 if 警告（完全信任此函式）。
+- **`ensure_budget_before_react(consolidation_llm, history, last_consolidated, human_message) -> int` 契約**：`**main()`** 須建立 **consolidation 專用** `**consolidation_llm**`（可與主模型同型號）並傳入第一參數。此函式**僅在** Phase A 確認 `**cost <= target**` 時 `**return last_consolidated**`。`**main()`** 在其執行完畢後**直接** `**build_system_prompt()`** → `**run_react_turn**`，**不得**再重算 cost 或加第二道 if 警告（完全信任此函式）。
 - **觸發整併流程**：若 `**cost > target**`，進入下方**外層迴圈**（規劃 → 整併 → 推游標 → 重算）；若 `**cost <= target**`，**不**呼叫 consolidation LLM、**不**推 `**last_consolidated**`，`**past = history[last_consolidated:]**`。
 - **與 WG-17 分工**：`**pick_consolidation_boundary`** 仍負責在 **user-turn 前**選邊界；**WG-19** 在**規劃段**用它算出 `**final_idx**`，**整併段**才呼叫 LLM。併 **WG-19** 後，**不得**只做 WG-17 式「機械推游標、不寫 **MEMORY**」的靜默裁切。
 
@@ -1121,8 +1126,8 @@ def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
 
 **Phase A — 規劃（純計算）**
 
-1. `**system_str = build_system_prompt()**`（含當前 `**MEMORY.md**` 讀回）。
-2. `**past0 = history[last_consolidated:]**`；`**cost = len(system_str) + message_cost([*past0, human_message])**`。
+1. `**system_text = build_system_prompt()**`（含當前 `**MEMORY.md**` 讀回）。
+2. `**past0 = history[last_consolidated:]**`；`**cost = len(system_text) + message_cost([*past0, human_message])**`。
 3. 若 `**cost <= target**`：**結束**並 `**return last_consolidated**`（呼叫端可直接 ReAct）。
 4. `**tokens_to_remove = max(0, cost - target)**`。
 5. `**boundary = pick_consolidation_boundary(history, last_consolidated, tokens_to_remove)**`（邏輯同 **WG-17**；邊界**僅能**落在 **user-turn 前**，**不可**拆散 **user** 後之 **assistant／`ToolMessage`** 鏈）。
@@ -1135,18 +1140,17 @@ def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
 **Phase B — 整併（一次 LLM）＋推游標**
 
 8. `**pack = history[last_consolidated:final_idx]**`；若 `**pack**` 為空 → 同上硬失敗，**不得**送主模型。
-9. 讀取目前 `**MEMORY.md`**（不存在視為空）。
-10. 將 **`pack`**（**整包**待移出短期視窗的訊息）**與既有 MEMORY 脈絡** **一次**送給 **consolidation 專用** LLM（`**invoke`／`ainvoke`**；可與主模型同型號或不同）：
-    - **system**：`**load_memory_merge_prompt()**`（來自 `**prompts/memory_merge.md**`）
-    - **user**（HumanMessage）建議格式：
-      - `**## CURRENT MEMORY\n{existing_memory 或「（空）」}**`
-      - `**## CONVERSATION CHUNK\n{chunk 純文字}**`
-      - 結尾一行：「僅回傳 JSON，不要其他文字。」
-11. 期望回傳**可解析的結構化結果**（擇一）：**首選**單一 **JSON** 物件，且**僅兩鍵**：`**history_entry`**（字串）、`**memory_update**`（字串，**完整取代** `**MEMORY.md`** 內文之 markdown，須含上節**固定四節標題**、**合併**既有 MEMORY、**刪除過期／重複**）；**或** **tool call** 兩參數語意同上。解析失敗計入「重試」。
-12. **成功**：`**HISTORY.md`** 追加一行 `**[YYYY-MM-DD HH:MM] <history_entry>**`（`**history_entry**` 應為**單行**）；**覆寫** `**MEMORY.md**` 為 `**memory_update**`。
-13. **失敗**（同一包最多 `**CONSOLIDATION_MAX_RETRIES**` 次，建議 **3**；**0** 表示不重試、直接 fallback，須**註解**）：`**HISTORY.md`** 寫入 `**[CONSOLIDATION-FAILED]**` 前綴之一行；`**MEMORY.md**` **維持不變**。
-14. **無論整併成敗**：`**last_consolidated = final_idx**`（使 `**history[last_consolidated:final_idx]**` 離開短期送入範圍）；`**ensure_budget_before_react**` **不**在 Phase B 另檢整併是否成功（信任整併流程；真實 API／解析等硬錯誤仍可能中止程式）。`**save_session_jsonl**` 通常由 `**main()`** 在游標變更時呼叫。
-15. **回到 Phase A** 重算 `**cost**`（整併後 `**build_system_prompt()**` 可能因 **MEMORY** 變長而增大 **system** 成本；若仍 `**> target**` 且仍有邊界，可再跑下一輪外層迭代—每一輪仍是「規劃一包 → 整併一包」）。
+9. `**existing = read_memory_md()**`（不存在視為空）。
+10. `**chunk_text = _chunk_to_text(pack)**`（每則經 `**_message_plaintext**`；含 tool 鏈時帶 **`[tool_calls: …]`** 後綴）。
+11. 呼叫 **`_consolidate_pack(consolidation_llm, pack, existing)`**（內部以 `**_invoke_consolidation**` **`invoke`** 送 consolidation LLM；**system** 為 `**load_memory_merge_prompt()**`；**user** 建議格式：
+    - `**## CURRENT MEMORY\n{existing 或「（空）」}**`
+    - `**## CONVERSATION CHUNK\n{chunk_text}**`
+    - 結尾一行：「僅回傳 JSON，不要其他文字。」
+12. 期望回傳**單一 JSON 物件**，且**僅兩鍵**：`**history_entry`**（字串）、`**memory_update**`（字串，**完整取代** `**MEMORY.md`** 內文之 markdown，須含上節**固定四節標題**、**合併**既有 MEMORY、**刪除過期／重複**）。以 **`_parse_consolidation_json`** 解析；失敗計入重試（**不**支援 tool call 替代格式）。
+13. **成功**：`**append_history_log(history_entry)`**（單行摘要）；`**write_memory_md(memory_update)`**。
+14. **失敗**（同一包最多 `**CONSOLIDATION_MAX_RETRIES**` 次，建議 **3**；**0** 表示不重試、直接 fallback，須**註解**）：`**append_history_log("[CONSOLIDATION-FAILED] …")**`；`**MEMORY.md**` **維持不變**。
+15. **無論整併成敗**：`**last_consolidated = final_idx**`（使 `**history[last_consolidated:final_idx]**` 離開短期送入範圍）；`**ensure_budget_before_react**` **不**在 Phase B 另檢整併是否成功（信任整併流程；真實 API／解析等硬錯誤仍可能中止程式）。`**save_session_jsonl**` 通常由 `**main()`** 在游標變更時呼叫。
+16. **回到 Phase A** 重算 `**cost**`（整併後 `**build_system_prompt()**` 可能因 **MEMORY** 變長而增大 **system_text** 成本；若仍 `**> target**` 且仍有邊界，可再跑下一輪外層迭代—每一輪仍是「規劃一包 → 整併一包」）。
 
 ##### 禁止事項（驗收對照）
 
@@ -1159,11 +1163,12 @@ def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
 
 - **對外入口（與 WG-12 一致）**：`**main()`**、成本估算、`**run_react_turn**` 仍只呼叫 `**build_system_prompt() -> str**`（**WG-19** 尚未併 **Skills** 時維持**無參數**版），**不得**改以 `**get_identity()`** 取代送模 system。
 - **WG-19 擴充 `**build_system_prompt()`**`：在 **WG-13** 之 `**get_identity()**` 基礎上，函式內依序拼接 `**memory_block_for_system()**`（若有），回傳**單一**送模用字串；**不得**改以 `**get_identity()`** 取代對外入口。
-- **每次**送主模型前，上述 `**build_system_prompt()`** 回傳之 system 字串（**僅含 WG-12～WG-19**、尚未併 **Skills** 時）至少包含：（1）`**get_identity()`** 之課堂基底；（2）自 `**MEMORY.md`** 讀出、以固定標題 `**## Long-term Memory**` 包起來的區塊（標題字串固定；可經 `**memory_block_for_system()`** 組裝）。**長期記憶須緊接在課堂人設之後**，且仍只出現在 `**SystemMessage.content`** 內（**不得**改放成 **user／assistant／tool** 對話列），與 **Challenge A** 語意一致。
+- **每次**送主模型前，上述 `**build_system_prompt()`** 回傳之 system 字串（**僅含 WG-12～WG-19**、尚未併 **Skills** 時）至少包含：（1）`**get_identity()`** 之課堂基底；（2）自 `**MEMORY.md`** 讀出、以 **`LONG_TERM_MEMORY_HEADING`**（`**## Long-term Memory**`）包起來的區塊（可經 `**memory_block_for_system()`** 組裝）。**長期記憶須緊接在課堂人設之後**，且仍只出現在 `**SystemMessage.content`** 內（**不得**改放成 **user／assistant／tool** 對話列），與 **Challenge A** 語意一致。
 - **併入 WG-20（Skills）時**：`**build_system_prompt()`** 仍為**唯一**送模組裝入口（**簽名不變**）；函式內透過模組級 `**SkillsLoader**`（對齊 **WG-14** `**WORKSPACE**`）併入 Skills。**`ensure_budget_before_react`** 與 **`main()`** 皆只呼叫此函式，**不得**另寫不含 Skills 的 system 組裝。**大段順序**為：**課堂基底**（`**get_identity()`**）→ **長期記憶**（若有**真實**內文；同 `**## Long-term Memory**`、空檔／預設模板不注入）→ `**# Active Skills**`（僅 `**always: true**` 之正文；多則之間可插 `**---**`；小標建議 `**### Skill: {name}**`）→ `**# Skills**`（僅非 `**always**` 之摘要＋**繁中**說明須以 `**read_file`** 讀清單中路徑之 `**SKILL.md**`，並一句帶過依賴安裝）。**課堂基底與長期記憶之間不得插入 Active／Skills**（維持 **WG-19** 與 **Challenge A** 之「規則先、記憶次之」）。各 **大段** 之間建議以 `**\n\n---\n\n`** 串接。若沒有任何非 `**always**` 技能，**不得**出現空 `**# Skills`** 標題。
 - `**history`（或裁切後之 `past`）** 僅含 `**last_consolidated` 之後**、**尚未經整併移出視窗**之短期內容；**不得**把已整併走之舊段再當「新訊息」重送一遍。
-- `**MEMORY.md` 為空、僅空白、或仍與 `**templates/memory/MEMORY.md**` 相同（預設模板）**：不得出現**孤立**之 `**## Long-term Memory`** 標題；與「完全不注入記憶區塊」擇一、**全專案一致**（藍本 `**is_default_memory_template**`）。
-- **讀回不截斷**：`**memory_block_for_system()`** 讀取 `**MEMORY.md**` 時**全文**併入 system；**不得**在讀回階段靜默截斷（否則無法確認是否讀完）。若 MEMORY 過長導致 `**cost > target**`，由 **WG-19 整併**（consolidation LLM 產出更精簡的 `**memory_update**`）或調整 `**TOKEN_BUDGET**` 處理。
+- **與 WG-18 銜接**：`**ensure_budget_before_react**` 完成後，`**run_react_turn**` 內每次送模 **`stream`** 前仍須 **`messages_for_model`** 修復 transcript（孤兒 tool／缺 tool 補洞；見 **WG-18**）。
+- `**MEMORY.md` 為空、僅空白、或仍與 `**templates/memory/MEMORY.md**` 相同（預設模板）**：不得出現**孤立**之 **`LONG_TERM_MEMORY_HEADING`**；與「完全不注入記憶區塊」擇一、**全專案一致**（藍本 `**is_default_memory_template**`）。
+- **讀回不截斷**：`**memory_block_for_system()`** 讀取 `**MEMORY.md**` 時**全文**併入 system；**不得**在讀回階段靜默截斷（否則無法確認是否讀完）。若 MEMORY 過長導致 `**cost > target**`，由 **WG-19 整併**（consolidation LLM 產出更精簡的 `**memory_update**`）或調高 env **`TOKEN_BUDGET`**／`**get_token_budget()**` 處理。
 
 ### 驗收條件
 
@@ -1171,7 +1176,7 @@ def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
 
 **整併與預算**
 
-- 送主模型前 `**cost <= TOKEN_BUDGET // 2**`；由 `**ensure_budget_before_react**` **保證**（僅在 Phase A 確認達標時 `**return**`）。
+- 送主模型前 `**cost <= get_token_budget() // 2**`；由 `**ensure_budget_before_react**` **保證**（僅在 Phase A 確認達標時 `**return last_consolidated**`）。
 - **Phase A** 不呼叫 consolidation LLM；**Phase B** 對**一整包** `**history[last_consolidated:final_idx]**` **一次**整併，且輸入含**既有** `**MEMORY.md**`。
 - **邊界 fallback**：`**boundary is None**` 或無效 → `**final_idx = len(history)**`；`**past**` 已空仍 `**> target**` → 硬失敗（**不得**送主模型）。
 - 成功／失敗路徑：`MEMORY`／`HISTORY` 符合上節；**無論成敗**皆推 `**last_consolidated = final_idx**`（**不**在 ensure 另檢整併 return 值）。
@@ -1181,7 +1186,7 @@ def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
 **讀回與組裝**
 
 - 每輪讀取約定路徑之 `**memory/MEMORY.md`**；`**history`／`past**` 僅自 `**last_consolidated**` 之後，不重複送入已整併內容。
-- **可觀察**：`**MEMORY.md`** 有**真實整併內容**（非預設模板）時，`**SystemMessage.content**`（來自 `**build_system_prompt()`**）含完整子字串 `**## Long-term Memory**`；仍為預設模板時**不得**注入該標題。
+- **可觀察**：`**MEMORY.md`** 有**真實整併內容**（非預設模板）時，`**SystemMessage.content**`（來自 `**build_system_prompt()`**）含完整子字串 **`LONG_TERM_MEMORY_HEADING`**（`**## Long-term Memory**`）；仍為預設模板時**不得**注入該標題。
 - 能指出：`**main()`** 仍呼叫 `**build_system_prompt()`**；`**get_identity()`** 只在 `**build_system_prompt()`** 內被呼叫（自 **WG-13** 起）。
 - **可觀察**：`**ensure_budget_before_react**` 回傳後，`**main()`** **直接** `**run_react_turn**`，**不再**重算 cost 或加第二道 if。
 - 能說明：長期記憶放 **system** 與放一般對話訊息之差異。
@@ -1190,112 +1195,129 @@ def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
 
 ### 藍本對應
 
-藍本示意涵蓋 **WG-12～WG-19**：含 `**memory/MEMORY.md`／`memory/HISTORY.md**`、`**prompts/memory_merge.md**`、`**templates/memory/MEMORY.md**`、`**load_memory_merge_prompt**`／`**is_default_memory_template**`、`**build_system_prompt()`**（內含 `**get_identity()`** 與 `**## Long-term Memory**`）、成本估算與 **WG-17** 同一公式、ReAct 前 **規劃→整併→推游標** 外層迴圈（`**CONSOLIDATION_MAX_RETRIES**`／`**[CONSOLIDATION-FAILED]**`）。請在**教師指定作答檔**中依藍本分段實作與驗收。
+對齊專案根 **`reference_agent2.py`**：
+
+| 區塊 | 約行 | 內容 |
+|---|---|---|
+| **WG-19** 路徑常數、MEMORY／HISTORY、整併 helpers | 558～699 | `REFERENCE_DIR`、`read_memory_md`、`memory_block_for_system`、`_consolidate_pack` 等 |
+| **WG-19** `ensure_budget_before_react` | 702～756 | Phase A 規劃 → Phase B 整包整併 → 推 `last_consolidated`；成本 **`len(system_text) + message_cost([*past0, human_message])`** |
+| **WG-20** `build_system_prompt()` | 863～887 | `get_identity()` → `memory_block_for_system()` → Skills（**WG-19 驗收**僅需前兩段） |
+| **`main()`** ReAct 前整併與 JSONL | 943～977 | `ensure_budget_before_react` → 游標變更時 `save_session_jsonl` → `run_react_turn` |
 
 ```python
-def ensure_budget_before_react(...) -> int:
-    """WG-19：ReAct 前；僅在 cost <= target 時 return last_consolidated。"""
-    budget = get_token_budget()
-    target = budget // 2
+# reference_agent2.py 558～565（路徑常數）
+REFERENCE_DIR = Path(__file__).resolve().parent
+MEMORY_DIR = REFERENCE_DIR / "memory"
+MEMORY_PATH = MEMORY_DIR / "MEMORY.md"
+HISTORY_PATH = MEMORY_DIR / "HISTORY.md"
+MEMORY_TEMPLATE_PATH = REFERENCE_DIR / "templates" / "memory" / "MEMORY.md"
+MEMORY_MERGE_PROMPT_PATH = REFERENCE_DIR / "prompts" / "memory_merge.md"
+LONG_TERM_MEMORY_HEADING = "## Long-term Memory"
+CONSOLIDATION_MAX_RETRIES = 3
+
+def read_memory_md() -> str: ...
+def load_memory_merge_prompt() -> str: ...
+def is_default_memory_template(content: str) -> bool: ...
+def memory_block_for_system() -> str:
+    body = read_memory_md()
+    if not body or is_default_memory_template(body):
+        return ""
+    return f"{LONG_TERM_MEMORY_HEADING}\n\n{body}"
+def append_history_log(line: str) -> None: ...
+def write_memory_md(content: str) -> None: ...
+# _message_plaintext / _chunk_to_text：chunk 純文字（AIMessage 含 tool_calls 時加 [tool_calls: …]）
+# _parse_consolidation_json：JSON 解析；失敗時自回覆擷取 {...} 再試
+# _invoke_consolidation(consolidation_llm, chunk_text, existing_memory) → invoke（整併 LLM，非 stream）
+# _consolidate_pack(consolidation_llm, chunk, existing_memory)：重試 CONSOLIDATION_MAX_RETRIES 次
+```
+
+```python
+def ensure_budget_before_react(
+    consolidation_llm: ChatOpenAI,
+    history: list[BaseMessage],
+    last_consolidated: int,
+    human_message: HumanMessage,
+) -> int:
+    """WG-19：僅在 cost <= get_token_budget() // 2 時 return。"""
+    target = get_token_budget() // 2
     while True:
         # Phase A — 規劃（不呼叫 consolidation LLM）
-        system_str = build_system_prompt()
+        system_text = build_system_prompt()
         past0 = history[last_consolidated:]
-        cost = len(system_str) + message_cost([*past0, human_message])
+        cost = len(system_text) + message_cost([*past0, human_message])
         if cost <= target:
             return last_consolidated
+
         tokens_to_remove = max(0, cost - target)
         boundary = pick_consolidation_boundary(
             history, last_consolidated, tokens_to_remove
         )
-        if boundary is not None and boundary[0] > last_consolidated:
-            final_idx = boundary[0]
-        elif last_consolidated >= len(history):
-            raise RuntimeError("past empty but cost still over target")
-        else:
+        if boundary is None or boundary[0] <= last_consolidated:
+            if last_consolidated >= len(history):
+                raise RuntimeError(
+                    f"WG-19：past 已空仍無法壓至 target（cost={cost}，target={target}）。"
+                    " 請縮短 MEMORY 或調高 TOKEN_BUDGET。"
+                )
             final_idx = len(history)  # fallback：整段尾包
+        else:
+            final_idx = boundary[0]
 
-        # Phase B — 整併一整包 + 推游標（一次 invoke）
         pack = history[last_consolidated:final_idx]
         if not pack:
-            raise RuntimeError("empty consolidation pack")
-        existing = read_memory_md()
-        consolidate_pack_once(pack, existing)  # 含重試／HISTORY 列
-        last_consolidated = final_idx
-        save_session_jsonl(...)
-        # 回到 Phase A 重算（system 可能因 MEMORY 變長）
+            raise RuntimeError(
+                f"WG-19：整併包為空無法推進（cost={cost}，target={target}）。"
+            )
 
-# main()：trust ensure — 不再重算 cost
-last_consolidated = ensure_budget_before_react(...)
-system_text = build_system_prompt()
-past = history[last_consolidated:]
-run_react_turn(system_text, past, human_message, ...)
+        # Phase B — 整包整併 + 推游標（一次 invoke；不在此函式內 save_session_jsonl）
+        existing = read_memory_md()
+        _consolidate_pack(consolidation_llm, pack, existing)
+        last_consolidated = final_idx
+        # 回到 Phase A 重算（MEMORY 更新後 build_system_prompt() 可能變長）
 ```
 
 ```python
-def get_identity() -> str:
-    """WG-13 自 build_system_prompt 抽出；含【解題方式】【依賴管理】。"""
-    system_text = (
-        "你是課堂程式助教，並請使用繁體中文。\n\n"
-        "【解題方式】可重複驗證的任務，優先 write_file 寫成腳本，再 exec 執行"
-        "（例如 uv run python 相對路徑）；避免只在對話中口算或貼無法重跑的一次性指令。\n\n"
-        "【依賴管理】本專案用 uv 管理套件；新增 Python 依賴請在專案根 exec "
-        "uv add <套件名>，不要用 pip install。"
-    )
-    nick = "法鬥超人"
-    return f"{system_text}\n\n【本場次顯示名稱】{nick}"
-
-REFERENCE_DIR = Path(__file__).resolve().parent
-MEMORY_DIR = REFERENCE_DIR / "memory"
-MEMORY_TEMPLATE_PATH = REFERENCE_DIR / "templates" / "memory" / "MEMORY.md"
-MEMORY_MERGE_PROMPT_PATH = REFERENCE_DIR / "prompts" / "memory_merge.md"
-
-def load_memory_merge_prompt() -> str:
-    return MEMORY_MERGE_PROMPT_PATH.read_text(encoding="utf-8")
-
-def is_default_memory_template(content: str) -> bool:
-    if not content.strip():
-        return True
-    if not MEMORY_TEMPLATE_PATH.is_file():
-        return False
-    return content.strip() == MEMORY_TEMPLATE_PATH.read_text(encoding="utf-8").strip()
-
-def memory_block_for_system() -> str:
-    """有 MEMORY.md 內文且非預設模板時，回傳 ## Long-term Memory 區塊。"""
-    body = read_memory_md()
-    if not body or is_default_memory_template(body):
-        return ""
-    return f"## Long-term Memory\n\n{body}"
-
-def _invoke_consolidation(consolidation_llm, chunk_text, existing_memory):
-    consolidation_system = load_memory_merge_prompt()
-    user_prompt = (
-        f"## CURRENT MEMORY\n{existing_memory or '（空）'}\n\n"
-        f"## CONVERSATION CHUNK\n{chunk_text}\n\n"
-        "僅回傳 JSON，不要其他文字。"
-    )
-    # invoke([SystemMessage(consolidation_system), HumanMessage(user_prompt)])
-
+# build_system_prompt() — WG-19 段（reference_agent2.py 863～867；WG-20 再併 Skills）
 def build_system_prompt() -> str:
-    """WG-12～20 送模 system 唯一入口（WG-20 於函式內讀模組級 SkillsLoader）。"""
-    parts = [get_identity()]
+    parts: list[str] = [get_identity()]
     mem = memory_block_for_system()
     if mem:
         parts.append(mem)
+    # WG-20：SKILLS_LOADER.list_skills() → # Active Skills / # Skills
     return "\n\n---\n\n".join(parts) if len(parts) > 1 else parts[0]
+
+# main() 每輪（reference_agent2.py 943～977；trust ensure — 不再重算 cost）
+human_message = HumanMessage(content=user_text)
+prev_consolidated = last_consolidated
+last_consolidated = ensure_budget_before_react(
+    consolidation_llm, history, last_consolidated, human_message
+)
+if last_consolidated != prev_consolidated:
+    session_meta = save_session_jsonl(
+        session_path, history, session_meta, last_consolidated
+    )
+system_text = build_system_prompt()
+past = history[last_consolidated:]
+_reply_text, turn_messages = run_react_turn(
+    llm_tools, system_text, past, user_text
+)
+history.extend(turn_messages)
+session_meta = save_session_jsonl(
+    session_path, history, session_meta, last_consolidated
+)
 ```
 
 ```text
 專案根/
+  reference_agent2.py   # 合併藍本（WG-12～20）
   memory/
-    MEMORY.md      # 覆寫：精簡備忘（nanobot 四節；非對話抄寫）
-    HISTORY.md     # 追加：每行 [時間] 摘要 或 [CONSOLIDATION-FAILED] ...
+    MEMORY.md           # 覆寫：精簡備忘（nanobot 四節）
+    HISTORY.md          # 追加：[YYYY-MM-DD HH:MM] 摘要 或 [CONSOLIDATION-FAILED] …
   prompts/
-    memory_merge.md   # 整併 LLM system 指令（讀檔，不硬編）
+    memory_merge.md     # 整併 LLM system（load_memory_merge_prompt 讀入）
   templates/
     memory/
-      MEMORY.md       # 起始模板；與 runtime MEMORY 相同時不注入 system
-  session.jsonl    # 仍：metadata + user/assistant/tool；metadata 內 last_consolidated
+      MEMORY.md         # 起始模板；與 runtime MEMORY 相同時不注入 system
+  session.jsonl         # metadata + user/assistant/tool；metadata.last_consolidated
 ```
 
 ---
