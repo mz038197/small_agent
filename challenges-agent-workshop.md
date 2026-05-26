@@ -1199,13 +1199,14 @@ def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
 
 | 區塊 | 約行 | 內容 |
 |---|---|---|
-| **WG-19** 路徑常數、MEMORY／HISTORY、整併 helpers | 558～699 | `REFERENCE_DIR`、`read_memory_md`、`memory_block_for_system`、`_consolidate_pack` 等 |
-| **WG-19** `ensure_budget_before_react` | 702～756 | Phase A 規劃 → Phase B 整包整併 → 推 `last_consolidated`；成本 **`len(system_text) + message_cost([*past0, human_message])`** |
-| **WG-20** `build_system_prompt()` | 863～887 | `get_identity()` → `memory_block_for_system()` → Skills（**WG-19 驗收**僅需前兩段） |
-| **`main()`** ReAct 前整併與 JSONL | 943～977 | `ensure_budget_before_react` → 游標變更時 `save_session_jsonl` → `run_react_turn` |
+| **WG-13** `run_react_turn` | 505～548 | 依 **WG-14** `_TOOL_BY_NAME`、**WG-18** `messages_for_model`（區塊在 WG-18 之後） |
+| **WG-19** 路徑常數、MEMORY／HISTORY、整併 helpers | 556～706 | `REFERENCE_DIR`、`read_memory_md`、`memory_block_for_system`、`_consolidate_pack` 等 |
+| **WG-20** `build_system_prompt()` | 813～837 | `get_identity()` → `memory_block_for_system()` → Skills（**WG-19 驗收**僅需前兩段） |
+| **WG-19（續）** `ensure_budget_before_react` | 845～897 | 置於 WG-20 之後；Phase A→B；成本 **`len(system_text) + message_cost([*past0, human_message])`** |
+| **`main()`** ReAct 前整併與 JSONL | 955～989 | `ensure_budget_before_react` → 游標變更時 `save_session_jsonl` → `run_react_turn` |
 
 ```python
-# reference_agent2.py 558～565（路徑常數）
+# reference_agent2.py 556～563（路徑常數）
 REFERENCE_DIR = Path(__file__).resolve().parent
 MEMORY_DIR = REFERENCE_DIR / "memory"
 MEMORY_PATH = MEMORY_DIR / "MEMORY.md"
@@ -1276,7 +1277,7 @@ def ensure_budget_before_react(
 ```
 
 ```python
-# build_system_prompt() — WG-19 段（reference_agent2.py 863～867；WG-20 再併 Skills）
+# build_system_prompt() — WG-19 段（reference_agent2.py 813～817；WG-20 再併 Skills）
 def build_system_prompt() -> str:
     parts: list[str] = [get_identity()]
     mem = memory_block_for_system()
@@ -1285,7 +1286,7 @@ def build_system_prompt() -> str:
     # WG-20：SKILLS_LOADER.list_skills() → # Active Skills / # Skills
     return "\n\n---\n\n".join(parts) if len(parts) > 1 else parts[0]
 
-# main() 每輪（reference_agent2.py 943～977；trust ensure — 不再重算 cost）
+# main() 每輪（reference_agent2.py 955～989；trust ensure — 不再重算 cost）
 human_message = HumanMessage(content=user_text)
 prev_consolidated = last_consolidated
 last_consolidated = ensure_budget_before_react(

@@ -4,8 +4,8 @@ Agent Workshop 標準程式（reference_agent2.py）— WG-12～20 合併示範�
 對齊 `challenges-agent-workshop.md`（**WG-12～20**）；教練驗收與 Spec 以本檔為準。
 學生實作請改專案根 **`main.py`**，勿直接修改本檔。
 
-- WG-12：`build_system_prompt`、`SystemMessage` 與 `history` 分離（system 不進 JSONL）
-- WG-13：抽出 `get_identity`（【解題方式】【依賴管理】）、`@tool`、`bind_tools`、ReAct 內層迴圈、`ToolMessage`
+- WG-12：`SystemMessage` 與 `history` 分離（system 不進 JSONL；`build_system_prompt()` 見 WG-20）
+- WG-13：`get_identity`（【解題方式】【依賴管理】）、`@tool`、`bind_tools`、ReAct 內層迴圈、`ToolMessage`
 - WG-14：workspace 路徑解析、五支檔案／shell 工具 + `add_numbers`
 - WG-15：每輪後 `save_session_jsonl`（先寫檔；啟動不讀舊檔）
 - WG-16：啟動時 `load_session_jsonl`（略過壞行；關閉再開可接續）
@@ -42,8 +42,14 @@ from langchain_openai import ChatOpenAI
 
 
 # ---------------------------------------------------------------------------
-# WG-12：人設（system 與 history 分離；完整 build_system_prompt 見 WG-20）
-# WG-13：自 build_system_prompt 抽出 get_identity（【解題方式】【依賴管理】）
+# WG-12：人設與 system／history 分離（main 內 system_text；不寫 SystemMessage 進 JSONL）
+# ---------------------------------------------------------------------------
+# 本區無獨立函式：每輪以 build_system_prompt() 產生 system_text，run_react_turn 內組 SystemMessage。
+# build_system_prompt() 完整實作見 WG-20（WG-19 起併 memory_block_for_system）。
+
+
+# ---------------------------------------------------------------------------
+# WG-13：get_identity、add_numbers、串流輔助（run_react_turn 見 WG-18 之後）
 # ---------------------------------------------------------------------------
 
 
@@ -58,11 +64,6 @@ def get_identity() -> str:
     )
     nick = "法鬥超人"
     return f"{system_text}\n\n【本場次顯示名稱】{nick}"
-
-
-# ---------------------------------------------------------------------------
-# WG-13：工具與 ReAct（`add_numbers`、`bind_tools`、串流、ToolMessage）
-# ---------------------------------------------------------------------------
 
 
 @tool
@@ -85,63 +86,6 @@ def _stream_model_response(
     if acc is None:
         raise RuntimeError("模型串流未回傳任何 chunk")
     return message_chunk_to_message(acc)
-
-
-def _run_bound_tool(name: str, args: dict[str, Any]) -> str:
-    tool_obj = _TOOL_BY_NAME.get(name)
-    if tool_obj is None:
-        return f"Error: unknown tool {name!r}"
-    try:
-        out = tool_obj.invoke(dict(args or {}))
-        return str(out)
-    except Exception as e:
-        return f"Error running tool {name}: {e}"
-
-
-def run_react_turn(
-    llm_tools: ChatOpenAI,
-    system_text: str,
-    past: list[BaseMessage],
-    user_text: str,
-) -> tuple[str, list[BaseMessage]]:
-    """單輪 ReAct：stream → tool_calls → ToolMessage 迴圈，直到純文字回覆。
-
-    WG-17：`past` 為裁切後送模切片；完整 `history` 由 `main()` 另行累積。
-    WG-18：每段 stream 前以 `messages_for_model` 修復 transcript。
-    """
-    human_message = HumanMessage(content=user_text)
-    messages: list[BaseMessage] = [
-        SystemMessage(content=system_text),
-        *past,
-        human_message,
-    ]
-    idx_turn_start = 1 + len(past)
-
-    while True:
-        messages = messages_for_model(messages)
-        response = _stream_model_response(llm_tools, messages)
-        messages.append(response)
-        print()
-
-        if response.tool_calls:
-            for tc in response.tool_calls:
-                name = str(tc["name"])
-                raw_args = dict(tc.get("args") or {})
-                result = _run_bound_tool(name, raw_args)
-                print(f"\n[工具 {name}]\n{result}\n", flush=True)
-                messages.append(
-                    ToolMessage(
-                        content=result,
-                        tool_call_id=str(tc["id"]),
-                        name=name,
-                    )
-                )
-        else:
-            break
-
-    turn_messages = messages[idx_turn_start:]
-    final_text = response.content.strip()
-    return final_text, turn_messages
 
 
 # ---------------------------------------------------------------------------
@@ -272,6 +216,17 @@ TOOLS = [
 ]
 
 _TOOL_BY_NAME: dict[str, Any] = {t.name: t for t in TOOLS}
+
+
+def _run_bound_tool(name: str, args: dict[str, Any]) -> str:
+    tool_obj = _TOOL_BY_NAME.get(name)
+    if tool_obj is None:
+        return f"Error: unknown tool {name!r}"
+    try:
+        out = tool_obj.invoke(dict(args or {}))
+        return str(out)
+    except Exception as e:
+        return f"Error running tool {name}: {e}"
 
 
 # ---------------------------------------------------------------------------
@@ -543,7 +498,59 @@ def messages_for_model(messages: list[BaseMessage]) -> list[BaseMessage]:
 
 
 # ---------------------------------------------------------------------------
-# WG-19：長期記憶整併（ReAct 前；memory/MEMORY.md、memory/HISTORY.md）
+# WG-13（續）：run_react_turn（依 WG-14 _TOOL_BY_NAME、WG-18 messages_for_model）
+# ---------------------------------------------------------------------------
+
+
+def run_react_turn(
+    llm_tools: ChatOpenAI,
+    system_text: str,
+    past: list[BaseMessage],
+    user_text: str,
+) -> tuple[str, list[BaseMessage]]:
+    """單輪 ReAct：stream → tool_calls → ToolMessage 迴圈，直到純文字回覆。
+
+    WG-17：`past` 為裁切後送模切片；完整 `history` 由 `main()` 另行累積。
+    WG-18：每段 stream 前以 `messages_for_model` 修復 transcript。
+    """
+    human_message = HumanMessage(content=user_text)
+    messages: list[BaseMessage] = [
+        SystemMessage(content=system_text),
+        *past,
+        human_message,
+    ]
+    idx_turn_start = 1 + len(past)
+
+    while True:
+        messages = messages_for_model(messages)
+        response = _stream_model_response(llm_tools, messages)
+        messages.append(response)
+        print()
+
+        if response.tool_calls:
+            for tc in response.tool_calls:
+                name = str(tc["name"])
+                raw_args = dict(tc.get("args") or {})
+                result = _run_bound_tool(name, raw_args)
+                print(f"\n[工具 {name}]\n{result}\n", flush=True)
+                messages.append(
+                    ToolMessage(
+                        content=result,
+                        tool_call_id=str(tc["id"]),
+                        name=name,
+                    )
+                )
+        else:
+            break
+
+    turn_messages = messages[idx_turn_start:]
+    final_text = response.content.strip()
+    return final_text, turn_messages
+
+
+# ---------------------------------------------------------------------------
+# WG-19：長期記憶（memory/MEMORY.md、memory/HISTORY.md、整併 helpers）
+# ensure_budget_before_react 見 WG-20 之後（呼叫 build_system_prompt）
 # ---------------------------------------------------------------------------
 
 REFERENCE_DIR = Path(__file__).resolve().parent
@@ -699,65 +706,8 @@ def _consolidate_pack(
     append_history_log(f"[CONSOLIDATION-FAILED] {fail_note}")
 
 
-def ensure_budget_before_react(
-    consolidation_llm: ChatOpenAI,
-    history: list[BaseMessage],
-    last_consolidated: int,
-    human_message: HumanMessage,
-) -> int:
-    """WG-19：ReAct 前外層迴圈 — Phase A 規劃 final_idx，Phase B 整包整併 + 推游標。
-
-    僅在 cost <= get_token_budget() // 2 時 return；呼叫端可直接進入 ReAct，無需再驗證。
-    """
-    target = get_token_budget() // 2
-
-    while True:
-        # Phase A — 規劃（不呼叫 consolidation LLM）
-        system_text = build_system_prompt()
-        past0 = history[last_consolidated:]
-        cost = len(system_text) + message_cost([*past0, human_message])
-        if cost <= target:
-            return last_consolidated
-
-        tokens_to_remove = max(0, cost - target)
-        boundary = pick_consolidation_boundary(
-            history, last_consolidated, tokens_to_remove
-        )
-        if boundary is None or boundary[0] <= last_consolidated:
-            # 無可用 user 邊界時，整併剩餘全部 history 尾段
-            if last_consolidated >= len(history):
-                raise RuntimeError(
-                    f"WG-19：past 已空仍無法壓至 target（cost={cost}，target={target}）。"
-                    " 請縮短 MEMORY 或調高 TOKEN_BUDGET。"
-                )
-            final_idx = len(history)
-        else:
-            final_idx = boundary[0]
-
-        pack = history[last_consolidated:final_idx]
-        if not pack:
-            raise RuntimeError(
-                f"WG-19：整併包為空無法推進（cost={cost}，target={target}）。"
-            )
-
-        print(
-            f"（WG-19 規劃：final_idx={final_idx}，"
-            f"待整併 {len(pack)} 則；cost={cost}，target={target}。）"
-        )
-
-        # Phase B — 整包整併 + 推游標（一次 invoke）
-        existing = read_memory_md()
-        print(
-            f"（WG-19 整併：history[{last_consolidated}:{final_idx}]"
-            f" + MEMORY → memory/MEMORY.md。）"
-        )
-        _consolidate_pack(consolidation_llm, pack, existing)
-        last_consolidated = final_idx
-        # 回到 Phase A 重算（MEMORY 更新後 system 可能變長）
-
-
 # ---------------------------------------------------------------------------
-# WG-20：SkillsLoader 與 system prompt 注入（模組級 SKILLS_LOADER）
+# WG-20：SkillsLoader、build_system_prompt（送模唯一入口）
 # ---------------------------------------------------------------------------
 
 
@@ -885,6 +835,68 @@ def build_system_prompt() -> str:
         parts.append("# Skills\n\n" + intro + summary)
 
     return "\n\n---\n\n".join(parts) if len(parts) > 1 else parts[0]
+
+
+# ---------------------------------------------------------------------------
+# WG-19（續）：ensure_budget_before_react（ReAct 前；依 WG-17、WG-20 build_system_prompt）
+# ---------------------------------------------------------------------------
+
+
+def ensure_budget_before_react(
+    consolidation_llm: ChatOpenAI,
+    history: list[BaseMessage],
+    last_consolidated: int,
+    human_message: HumanMessage,
+) -> int:
+    """WG-19：ReAct 前外層迴圈 — Phase A 規劃 final_idx，Phase B 整包整併 + 推游標。
+
+    僅在 cost <= get_token_budget() // 2 時 return；呼叫端可直接進入 ReAct，無需再驗證。
+    """
+    target = get_token_budget() // 2
+
+    while True:
+        # Phase A — 規劃（不呼叫 consolidation LLM）
+        system_text = build_system_prompt()
+        past0 = history[last_consolidated:]
+        cost = len(system_text) + message_cost([*past0, human_message])
+        if cost <= target:
+            return last_consolidated
+
+        tokens_to_remove = max(0, cost - target)
+        boundary = pick_consolidation_boundary(
+            history, last_consolidated, tokens_to_remove
+        )
+        if boundary is None or boundary[0] <= last_consolidated:
+            # 無可用 user 邊界時，整併剩餘全部 history 尾段
+            if last_consolidated >= len(history):
+                raise RuntimeError(
+                    f"WG-19：past 已空仍無法壓至 target（cost={cost}，target={target}）。"
+                    " 請縮短 MEMORY 或調高 TOKEN_BUDGET。"
+                )
+            final_idx = len(history)
+        else:
+            final_idx = boundary[0]
+
+        pack = history[last_consolidated:final_idx]
+        if not pack:
+            raise RuntimeError(
+                f"WG-19：整併包為空無法推進（cost={cost}，target={target}）。"
+            )
+
+        print(
+            f"（WG-19 規劃：final_idx={final_idx}，"
+            f"待整併 {len(pack)} 則；cost={cost}，target={target}。）"
+        )
+
+        # Phase B — 整包整併 + 推游標（一次 invoke）
+        existing = read_memory_md()
+        print(
+            f"（WG-19 整併：history[{last_consolidated}:{final_idx}]"
+            f" + MEMORY → memory/MEMORY.md。）"
+        )
+        _consolidate_pack(consolidation_llm, pack, existing)
+        last_consolidated = final_idx
+        # 回到 Phase A 重算（MEMORY 更新後 system 可能變長）
 
 
 # ---------------------------------------------------------------------------
