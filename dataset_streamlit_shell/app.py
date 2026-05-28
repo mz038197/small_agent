@@ -32,7 +32,7 @@ def overview() -> None:
     with main:
         st.title("CSV Data Agent Shell")
         st.caption(
-            "上傳任意 CSV、篩選目前工作資料，最後把 WG-22 完成的 `agent_core.Agent` 套到右側聊天框。"
+            "上傳任意 CSV、篩選目前工作資料，將完成的 `agent_core.Agent` 套到右側聊天框。"
         )
 
         df = load_dataset()
@@ -47,10 +47,10 @@ def overview() -> None:
         st.divider()
         st.markdown("##### DATASET")
         st.write("完整資料：目前資料集")
-        st.write("工作資料：目前篩選結果")
+        st.write("工作資料：Agent 工作資料")
         with st.expander("技術資訊", expanded=False):
             st.caption(f"完整資料檔：`{_display_path(DATASET_PATH)}`")
-            st.caption(f"篩選資料檔：`{_display_path(FILTERED_DATASET_PATH)}`")
+            st.caption(f"Agent 工作資料檔：`{_display_path(FILTERED_DATASET_PATH)}`")
         render_column_pills(df.columns)
 
         st.markdown("##### QUICK PREVIEW")
@@ -60,7 +60,7 @@ def overview() -> None:
         st.markdown(
             """
 1. 在 Database 頁上傳或更換 CSV。
-2. 用欄位選擇與欄位值篩選建立目前工作資料。
+2. 用欄位選擇與欄位值篩選調整畫面檢視；這些篩選不會覆蓋 CSV。
 3. 完成 WG-22 後，右側 Agent 會透過 `Agent.chat(..., on_token=...)` 分析同一份 CSV。
 4. 若請 Agent 補值、計算或新增欄位，目標工作檔是 `current_filtered.csv`。
 """

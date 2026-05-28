@@ -15,12 +15,15 @@ if str(PROJECT_ROOT) not in sys.path:
 from dataset_streamlit_shell.data_ui import (
     FILTERED_DATASET_PATH,
     _display_path,
+    initialize_working_dataset,
     inject_style,
     load_dataset,
+    load_working_dataset,
     read_uploaded_csv,
     render_chat_panel,
     render_column_pills,
     render_dataset_metrics,
+    reset_working_dataset,
     save_dataset,
 )
 
@@ -112,8 +115,7 @@ def _apply_value_filter(df: pd.DataFrame, column: str) -> tuple[pd.DataFrame, An
     return df, ("search", "")
 
 
-def apply_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, tuple[Any, ...]]:
-    signature: list[Any] = []
+def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
     with st.expander("篩選條件", expanded=True):
         all_columns = [str(column) for column in df.columns]
         selected_columns = st.multiselect(
@@ -122,7 +124,6 @@ def apply_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, tuple[Any, ...]]:
             default=all_columns,
             key="selected_columns",
         )
-        signature.append(("columns", tuple(selected_columns)))
 
         filter_columns = st.multiselect(
             "依欄位值篩選",
@@ -130,45 +131,16 @@ def apply_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, tuple[Any, ...]]:
             default=[],
             key="filter_columns",
         )
-        signature.append(("filter_columns", tuple(filter_columns)))
 
         filtered = df.copy()
         for column in filter_columns:
             st.markdown(f"###### `{column}`")
             filtered, filter_state = _apply_value_filter(filtered, column)
-            signature.append((column, filter_state))
 
     if not selected_columns:
         st.warning("至少選擇一個顯示欄位。")
-        return filtered.iloc[:, 0:0], tuple(signature)
-    return filtered[selected_columns], tuple(signature)
-
-
-def filtered_table_for_current_state(
-    df: pd.DataFrame, computed: pd.DataFrame, signature: tuple[Any, ...]
-) -> pd.DataFrame:
-    previous_signature = st.session_state.get("filter_signature")
-    if not FILTERED_DATASET_PATH.exists():
-        save_dataset(computed, filtered=True)
-        st.session_state["filter_signature"] = signature
-        return computed
-
-    try:
-        existing = pd.read_csv(FILTERED_DATASET_PATH)
-    except Exception:
-        save_dataset(computed, filtered=True)
-        return computed
-
-    if previous_signature is None:
-        st.session_state["filter_signature"] = signature
-        return existing
-
-    if previous_signature != signature:
-        save_dataset(computed, filtered=True)
-        st.session_state["filter_signature"] = signature
-        return computed
-
-    return existing
+        return filtered.iloc[:, 0:0]
+    return filtered[selected_columns]
 
 
 main, side = st.columns([5, 3], gap="large")
@@ -176,7 +148,7 @@ main, side = st.columns([5, 3], gap="large")
 with main:
     st.title("Database")
     st.caption(
-        "上傳 CSV 後，中間表格與右側 Agent 會使用同一份資料；目前篩選結果會同步到 filtered 工作檔。"
+        "上傳 CSV 後，中間表格會呈現目前工作資料；篩選條件只影響畫面，不會覆蓋 Agent 工作資料。"
     )
 
     uploaded = st.file_uploader("上傳 CSV", type=["csv"])
@@ -187,10 +159,13 @@ with main:
             st.error(f"CSV 讀取失敗：{exc}")
             st.stop()
         save_dataset(df)
-        save_dataset(df, filtered=True)
-        st.success("已上傳並寫入 `dataset_streamlit_shell/data/current.csv`。")
+        reset_working_dataset()
+        initialize_working_dataset(df)
+        st.success(
+            "已上傳並建立完整資料 `current.csv` 與工作資料 `current_filtered.csv`。"
+        )
 
-    df = load_dataset()
+    df = load_working_dataset()
     if df is None:
         st.info("尚未載入資料。請上傳 CSV。")
     else:
@@ -198,19 +173,18 @@ with main:
         st.markdown("##### COLUMNS")
         render_column_pills(df.columns)
 
-        computed_filtered, filter_signature = apply_filters(df)
-        filtered = filtered_table_for_current_state(
-            df,
-            computed_filtered,
-            filter_signature,
-        )
+        filtered = apply_filters(df)
 
         st.markdown("##### TABLE")
         st.caption(
-            f"目前顯示 {len(filtered):,} / {len(df):,} 筆；篩選結果已同步到「目前篩選結果」。"
+            f"目前顯示 {len(filtered):,} / {len(df):,} 筆；這是畫面篩選結果，不會寫回 CSV。"
         )
         with st.expander("技術資訊", expanded=False):
-            st.caption(f"篩選資料檔：`{_display_path(FILTERED_DATASET_PATH)}`")
+            if FILTERED_DATASET_PATH.exists():
+                st.caption(f"目前基底資料：Agent 工作資料 `{_display_path(FILTERED_DATASET_PATH)}`")
+            else:
+                st.caption("目前基底資料：完整資料 `dataset_streamlit_shell/data/current.csv`")
+            st.caption("畫面篩選不會落檔；只有右側 Agent 會寫入 Agent 工作資料。")
         st.dataframe(filtered, use_container_width=True, hide_index=True)
 
         with st.expander("欄位統計", expanded=False):

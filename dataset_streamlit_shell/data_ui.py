@@ -75,6 +75,7 @@ def save_dataset(df: pd.DataFrame, *, filtered: bool = False) -> None:
     df.to_csv(target, index=False)
     if not filtered:
         st.session_state["dataset_df"] = df
+        st.session_state.pop("working_dataset_df", None)
         st.session_state.pop("selected_columns", None)
         st.session_state.pop("filter_columns", None)
         st.session_state.pop("filter_signature", None)
@@ -88,6 +89,25 @@ def load_dataset() -> pd.DataFrame | None:
         st.session_state["dataset_df"] = df
         return df
     return None
+
+
+def load_working_dataset() -> pd.DataFrame | None:
+    if FILTERED_DATASET_PATH.exists():
+        df = pd.read_csv(FILTERED_DATASET_PATH)
+        st.session_state["working_dataset_df"] = df
+        return df
+    return load_dataset()
+
+
+def reset_working_dataset() -> None:
+    st.session_state.pop("working_dataset_df", None)
+    if FILTERED_DATASET_PATH.exists():
+        FILTERED_DATASET_PATH.unlink()
+
+
+def initialize_working_dataset(df: pd.DataFrame) -> None:
+    save_dataset(df, filtered=True)
+    st.session_state["working_dataset_df"] = df
 
 
 def read_uploaded_csv(uploaded_file) -> pd.DataFrame:
@@ -104,10 +124,10 @@ def dataset_context(df: pd.DataFrame | None) -> str:
     return (
         "目前 Streamlit 畫面使用一份通用 CSV 資料集。"
         f"完整資料路徑：{source}。"
-        f"如果存在篩選後資料，路徑：{filtered}，請優先用它回答和目前畫面篩選有關的問題。"
+        f"Agent 工作資料路徑：{filtered}。上傳資料時系統會先建立一份和完整資料相同的工作副本。"
         f"資料共有 {len(df)} 筆、{len(df.columns)} 欄。欄位：{columns}。"
         "回答資料問題時，請使用你的 read_file 或 exec 工具實際讀取 CSV 後再回答。"
-        f"如果使用者要求補值、計算欄位或新增欄位，請直接更新 {filtered}，不要覆蓋 {source}。"
+        f"如果使用者要求補值、計算欄位或新增欄位，請讀取並更新 {filtered}。不要覆蓋 {source}。"
     )
 
 
@@ -243,7 +263,7 @@ def _get_agent_for_session(session_path: str) -> Agent:
 def render_chat_panel() -> None:
     st.markdown("##### DATA AGENT")
 
-    df = load_dataset()
+    df = load_working_dataset()
     if df is None:
         st.caption("先在 Database 頁上傳 CSV，右側 Agent 才能分析同一份資料。")
         st.chat_input("ask the agent...", disabled=True, key="data_chat_disabled")
@@ -320,10 +340,10 @@ def render_chat_panel() -> None:
 
     current_session_path = PROJECT_ROOT / current_session
     st.caption(f"對話紀錄：{_session_label(current_session_path)}")
-    st.caption("Agent 會讀取並更新「目前篩選結果」。")
+    st.caption("Agent 會讀取並更新「Agent 工作資料」。")
     with st.expander("技術資訊", expanded=False):
         st.caption(f"對話紀錄檔：`{current_session}`")
-        st.caption(f"篩選資料檔：`{_display_path(FILTERED_DATASET_PATH)}`")
+        st.caption(f"Agent 工作資料檔：`{_display_path(FILTERED_DATASET_PATH)}`")
 
     try:
         agent = _get_agent_for_session(current_session)
