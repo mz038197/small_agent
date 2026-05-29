@@ -16,7 +16,7 @@
 ```text
 ┌─────────────────────────────────────────────────────────────┬──────────────────────────┐
 │                                                             │                          │
-│      /|     PEAS Workshop Bridge · WG-13～23                │Tips for getting started  │
+│      /|     PEAS Workshop Bridge · WG-13～22                │Tips for getting started  │
 │     / |     Session: 本輪教練剛開始                         │先掃描目前進度，          │
 │    /  |     Mode: Scan → Route → Card → Verify              │每次只處理一題。          │
 │   /   |                                                     │                          │

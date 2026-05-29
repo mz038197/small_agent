@@ -676,7 +676,7 @@ history: list[BaseMessage] = []
 ### 規格
 
 - **延續 WG-12** 之 `**build_system_prompt()`** 與 `**history**` 分離；`**run_react_turn(llm_tools, system_text, past, user_text)**` 在內部建立 `**SystemMessage(content=system_text)**`（第三參數名 **`past`**，對齊 `**agent_core.py**`；**WG-13～16** 呼叫時可傳 `**main()`** 之 `**history**`，語意上 `**past**` 即完整已累積串列）。
-- **自 WG-12 抽出 `**get_identity() -> str**`**：`build_system_prompt()` 改為 `return get_identity()`（**WG-19** 起再併 `memory_block_for_system()` 等）。`**get_identity()` 回傳字串**須含：（1）**課堂規則**（須含「**繁體中文**」）；（2）**【解題方式】**：可重複驗證的任務，優先 `**write_file**` 寫腳本再 `**exec**`（如 `**uv run python 相對路徑**`），避免只在對話口算或貼無法重跑的一次性指令；（3）**【依賴管理】**：本專案用 **uv**；新增 Python 依賴請在專案根 `**exec uv add <套件名>**`，勿用 `**pip install**`；（4）**【本場次顯示名稱】** 與 `**nick**`。**選修**：（5）**【執行環境】**／**【exec 注意】**。格式對齊 `**agent_core.py**`。
+- **自 WG-12 抽出 `**get_identity() -> str**`**：`get_identity()` 只放人物設定與課堂規則，回傳字串須含：（1）**課堂規則**（須含「**繁體中文**」）；（2）**【解題方式】**：可重複驗證的任務，優先 `**write_file**` 寫腳本再 `**exec**`（如 `**uv run python 相對路徑**`），避免只在對話口算或貼無法重跑的一次性指令；（3）**【依賴管理】**：本專案用 **uv**；新增 Python 依賴請在專案根 `**exec uv add <套件名>**`，勿用 `**pip install**`；（4）**【本場次顯示名稱】** 與 `**nick**`。另抽出 `**get_runtime_environment() -> str**` 放 **【執行環境】** 與平台限制，並由 `build_system_prompt()` 組合 `get_identity()` 與 `get_runtime_environment()`（**WG-19** 起再併 `memory_block_for_system()` 等）。格式對齊 `**agent_core.py**`。
 - 以 `**@tool**` 定義 `**add_numbers(a: float, b: float) -> float**`；**docstring** 須說明算術須呼叫工具、不可心算（對齊示範檔繁中文案）。
 - `**TOOLS = [add_numbers]**`；`**_TOOL_BY_NAME = {t.name: t for t in TOOLS}**`；`**llm.bind_tools(TOOLS)**` 取得 `**llm_tools**`。
 - **串流輔助 `**_stream_model_response**`**：`**llm_tools.stream(messages)**` 累積 chunk（`**acc + chunk**`），邊收邊 `**print**` 文字；以 `**message_chunk_to_message(acc)**` 轉成 `**AIMessage**`（保留 `**tool_calls**`）。
@@ -693,7 +693,7 @@ history: list[BaseMessage] = []
 - 使用者提出須用工具完成的算術時，終端可觀察到 `**[工具 add_numbers]**` 與實際工具執行。
 - 能指出：`**bind_tools`**、`**_stream_model_response**`、`**run_react_turn**` 內處理 `**tool_calls**` 的迴圈。
 - 能說明：含 `**tool_calls**` 的 `**AIMessage**`、`**ToolMessage**`、最終純文字 `**AIMessage**` 在串列中的順序。
-- 能說明：`**get_identity()**` 中 **【解題方式】**、**【依賴管理】** 各對應哪一段；`**build_system_prompt()`** 如何呼叫 `**get_identity()**`。
+- 能說明：`**get_identity()**` 中 **【解題方式】**、**【依賴管理】** 各對應哪一段；`**get_runtime_environment()**` 如何獨立描述執行環境；`**build_system_prompt()`** 如何組合兩者。
 - **邊界**：只做一次 `**invoke**`、不處理 `**tool_calls**` 時可能錯在哪裡。
 
 ### 藍本對應
@@ -714,7 +714,7 @@ def get_identity() -> str:
     return f"{system_text}\n\n【本場次顯示名稱】{nick}"
 
 def build_system_prompt() -> str:
-    return get_identity()
+    return "\n\n".join([get_runtime_environment(), get_identity()])
 
 @tool
 def add_numbers(a: float, b: float) -> float:
@@ -748,7 +748,7 @@ def run_react_turn(llm_tools, system_text, past, user_text):
 
 核心觀念：**檔案操作走檔案工具，shell 指令才走 `exec`**。讀檔不用 `cat`、寫檔不用 `echo >`、改檔不用 `sed -i`。
 
-**Agent 使用 `exec` 時**：須遵守 **WG-13** `**get_identity()`** 之 **【解題方式】**（多行 Python：**write_file → `uv run python …`**）與 **【依賴管理】**（`**uv add**`，勿 `**pip install**`）。Windows PowerShell 勿用 `<<`／heredoc。工具 **docstring** 說明用途即可；跨平台編碼細節見下方 **`exec`** 規格。
+**Agent 使用 `exec` 時**：須遵守 **WG-13** `**get_identity()`** 之 **【解題方式】**（多行 Python：**write_file → `uv run python …`**）與 **【依賴管理】**（`**uv add**`，勿 `**pip install**`），並遵守 `**get_runtime_environment()`** 回傳的平台限制。Windows shell 勿用 `<<`／heredoc。工具 **docstring** 說明用途即可；跨平台編碼細節見下方 **`exec`** 規格。
 
 本題**不要求**自訂 `ToolRegistry`；`**_TOOL_BY_NAME**` 對照表供 `**_run_bound_tool**` 使用（與 **WG-13** 相同）。
 
@@ -761,8 +761,8 @@ def run_react_turn(llm_tools, system_text, past, user_text):
 - **`write_file(path, content)`**：UTF-8 整檔覆寫；必要時 `**mkdir(parents=True)**`。
 - **`edit_file(path, old_text, new_text, replace_all=False)`**：局部替換；`old_text` 多次出現且未 `replace_all` 時報錯。
 - **`list_dir(path, recursive=False, max_entries=200)`**：列出相對 workspace 之路徑；可 `**rglob**`。
-- **`exec`（`exec_workspace`）**：`**subprocess.run**`、`**cwd=WORKSPACE**`、`**shell=True**`、`**encoding="utf-8"`**、`**errors="replace"**`、`**timeout**`（預設 30）；子程序 env 設 `**PYTHONUTF8=1**`；Windows 可設 `**CREATE_NO_WINDOW**`；輸出合併 stdout／stderr，超過約 4000 字元截斷；阻擋 `rm -rf`／`del /f` 等危險片段。
-- **`exec` 與子程序輸出編碼（跨平台必讀）**：繁中 Windows 預設 cp950 解碼可能導致 `**UnicodeDecodeError**`；須明確 `**encoding="utf-8"`** 與 `**errors="replace"**`（對齊示範檔）。
+- **`exec`（`exec_workspace`）**：`**subprocess.run**`、`**cwd=WORKSPACE**`、`**shell=True**`、`**timeout**`（預設 30）；子程序 env 設 `**PYTHONUTF8=1**`；Windows 可設 `**CREATE_NO_WINDOW**`；輸出合併 stdout／stderr，超過約 4000 字元截斷；阻擋 `rm -rf`／`del /f` 等危險片段；Windows 上阻擋 `<<`／heredoc，並提示改用 `write_file` + `uv run python <script.py>`。
+- **`exec` 與子程序輸出編碼（跨平台必讀）**：繁中 Windows 預設 cp950 解碼可能導致亂碼；建議先擷取 bytes，再以 UTF-8／系統編碼／CP950 fallback 解碼（對齊示範檔）。
 
 ### 驗收條件
 
@@ -1282,7 +1282,7 @@ def ensure_budget_before_react(
 ```python
 # build_system_prompt() — WG-19 段（agent_core.py 813～817；WG-20 再併 Skills）
 def build_system_prompt() -> str:
-    parts: list[str] = [get_identity()]
+    parts: list[str] = [get_runtime_environment(), get_identity()]
     mem = memory_block_for_system()
     if mem:
         parts.append(mem)
@@ -1419,7 +1419,7 @@ always: false
   - 摘要列中的路徑須直接使用 `**SkillEntry.path**`（**相對 workspace、POSIX**）；模型依 **# Skills** 引導以 **WG-14** `**read_file(path=...)**` 讀取時須能成功（**WG-14** 拒絕絕對路徑，故**不可**把 `**Path**` 物件或未正規化之絕對路徑塞進 prompt）。
   - 範例（一行）：`**class-helper`**、description、以及反引號內 `**skills/class-helper/SKILL.md**` 路徑皆須可從該行讀出。
 - 實作 `**build_system_prompt() -> str**`（簽名與 **WG-12～19** 相同），將 **WG-12** 課堂基底、**WG-19** 長期記憶（若有）、與本題 **Skills** 併成**單一**送模用字串（亦供 **WG-17**／**WG-19** 成本估算與 `**SystemMessage.content`** 使用）。函式內透過模組級 `**SkillsLoader**` 取得 `**list_skills()**`。**建議大段順序**：
-  1. **課堂基底**：`**get_identity()`**（**WG-13** 自 **WG-12** 抽出；含【解題方式】【依賴管理】；**選修**含【執行環境】與【exec 注意】）。
+  1. **課堂基底**：`**get_identity()`** + `**get_runtime_environment()`**（**WG-13** 自 **WG-12** 抽出；前者含人物設定、【解題方式】、【依賴管理】，後者含【執行環境】與平台限制）。
   2. **長期記憶**：同 **WG-19** `**memory_block_for_system()`** 語意（有內文才 append）。
   3. **Active Skills**：`always: true` 的 skill，放入 **去掉 frontmatter 後的正文**；區塊標題 `**# Active Skills`**。
   4. **Skills**：`build_skills_summary` 產生之清單；區塊標題 `**# Skills`**；其前附**繁體中文**短引導（須明示以 `**read_file`** 讀取清單中路徑之 `**SKILL.md**`，並一句帶過「若需套件／環境請先依該檔或專案說明安裝」）。
@@ -1561,7 +1561,7 @@ def memory_block_for_system() -> str:
 
 def build_system_prompt() -> str:
     """WG-12～21 送模 system 唯一入口（Skills 經模組級 SKILLS_LOADER）。"""
-    parts: list[str] = [get_identity()]
+    parts: list[str] = [get_runtime_environment(), get_identity()]
     mem = memory_block_for_system()
     if mem:
         parts.append(mem)

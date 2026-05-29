@@ -24,6 +24,7 @@ from __future__ import annotations
 import base64
 import copy
 import json
+import locale
 import os
 import re
 import subprocess
@@ -62,13 +63,42 @@ def get_identity() -> str:
     """WG-13 自 build_system_prompt 抽出；含【解題方式】【依賴管理】。"""
     system_text = (
         "你是課堂程式助教，並請使用繁體中文。\n\n"
-        "【解題方式】可重複驗證的任務，優先 write_file 寫成腳本，再 exec 執行"
-        "（例如 uv run python 相對路徑）；避免只在對話中口算或貼無法重跑的一次性指令。\n\n"
+        "【解題方式】可重複驗證的任務，必須先用 write_file 寫成 .py 腳本，"
+        "再用 exec 執行（例如 uv run python 相對路徑）；"
+        "避免只在對話中口算或貼無法重跑的一次性指令。\n\n"
         "【依賴管理】本專案用 uv 管理套件；新增 Python 依賴請在專案根 exec "
         "uv add <套件名>，不要用 pip install。"
     )
     nick = "法鬥超人"
     return f"{system_text}\n\n【本場次顯示名稱】{nick}"
+
+
+def _detect_shell_name() -> str:
+    shell = os.environ.get("SHELL") or os.environ.get("COMSPEC") or ""
+    shell_name = Path(shell).name if shell else ""
+    if os.name == "nt":
+        if "powershell" in shell_name.lower() or os.environ.get("PSModulePath"):
+            return "PowerShell"
+        return shell_name or "Windows shell"
+    return shell_name or "POSIX shell"
+
+
+def get_runtime_environment() -> str:
+    """回傳目前工具執行環境與平台限制；不要混入人物設定。"""
+    shell_name = _detect_shell_name()
+    if os.name == "nt":
+        return (
+            f"【執行環境】目前工具執行在 Windows / {shell_name} 環境。\n\n"
+            "【平台限制】Windows shell 不支援 heredoc，禁止使用 "
+            "`python - <<'PY'`、`python - <<\"PY\"` 或任何包含 `<<` 的多行 shell 寫法。"
+            "需要執行多行 Python 時，必須先用 write_file 寫入 .py 檔，再用 "
+            "uv run python <script.py> 執行。"
+        )
+    return (
+        f"【執行環境】目前工具執行在 Unix-like / {shell_name} 環境。\n\n"
+        "【平台限制】可重複驗證的多行 Python 仍應先用 write_file 寫入 .py 檔，"
+        "再用 uv run python <script.py> 執行。"
+    )
 
 
 @tool
@@ -180,6 +210,12 @@ def exec_workspace(command: str, timeout: int = 30) -> str:
     lowered = command.lower()
     if any(part in lowered for part in blocked):
         return "Error: blocked dangerous command (safety limit)"
+    if os.name == "nt" and "<<" in command:
+        return (
+            "Error: heredoc syntax is disabled in this Windows runtime. "
+            "Use write_file to create a .py script, then run it with "
+            "uv run python <script.py>."
+        )
 
     child_env = os.environ.copy()
     child_env.setdefault("PYTHONUTF8", "1")
@@ -189,9 +225,6 @@ def exec_workspace(command: str, timeout: int = 30) -> str:
         "cwd": str(WORKSPACE),
         "shell": True,
         "capture_output": True,
-        "text": True,
-        "encoding": "utf-8",
-        "errors": "replace",
         "timeout": timeout,
         "env": child_env,
     }
@@ -200,7 +233,9 @@ def exec_workspace(command: str, timeout: int = 30) -> str:
 
     try:
         result = subprocess.run(command, **run_kw)
-        output = ((result.stdout or "") + (result.stderr or "")).strip()
+        stdout = _decode_process_output(result.stdout or b"")
+        stderr = _decode_process_output(result.stderr or b"")
+        output = (stdout + stderr).strip()
         cap = 4000
         if len(output) > cap:
             output = output[:cap] + "\n\n[truncated]"
@@ -209,6 +244,16 @@ def exec_workspace(command: str, timeout: int = 30) -> str:
         return f"exit_code={result.returncode}\n{output}"
     except Exception as e:
         return f"Error: {e}"
+
+
+def _decode_process_output(data: bytes) -> str:
+    encodings = ["utf-8", locale.getpreferredencoding(False), "cp950"]
+    for encoding in dict.fromkeys(encodings):
+        try:
+            return data.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return data.decode("utf-8", errors="replace")
 
 
 TOOLS = [
@@ -996,7 +1041,7 @@ SKILLS_LOADER = SkillsLoader(WORKSPACE)
 
 def build_system_prompt() -> str:
     """WG-12～20 送模 system 唯一入口（人設 + 長期記憶 + Skills）。"""
-    parts: list[str] = [get_identity()]
+    parts: list[str] = [get_runtime_environment(), get_identity()]
     mem = memory_block_for_system()
     if mem:
         parts.append(mem)

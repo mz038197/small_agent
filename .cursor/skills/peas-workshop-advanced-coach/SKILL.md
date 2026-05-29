@@ -1,29 +1,27 @@
 ---
 name: peas-workshop-advanced-coach
-description: Use when students are doing PEAS Agent Workshop advanced challenges WG-13 through WG-23, including bridge routing, WG-22 core split, or WG-23 Streamlit/Chainlit UI shell work.
+description: Use when students are doing PEAS Agent Workshop advanced challenges WG-13 through WG-22, including bridge routing and WG-22 core split work.
 ---
 
 # PEAS Workshop Bridge Coach
 
 ## Purpose
 
-This skill is a **router / state machine** for Agent Workshop **WG-13～23**.
+This skill is a **router / state machine** for Agent Workshop **WG-13～22**.
 
 - WG-13～21: after the teacher explains a challenge, ask whether the student wants **direct implementation** or **guided clarification first**.
 - WG-22: route into **contract-first** split workflow. Do not use the normal direct/guided choice.
-- WG-23: route into **UI shell** choice. The UI wraps `agent_core.Agent`; it does not rewrite the core agent.
-- Keep `SKILL.md` thin. Detailed requirements live in the current challenge card under `references/bridge/` or `references/wg23-ui/`.
+- Keep `SKILL.md` thin. Detailed requirements live in the current challenge card under `references/bridge/`.
 
 ## Hard Rules
 
 These rules override every bridge card:
 
 - **「準備好了」 is not permission to edit code.** It only starts progress scan and routing.
-- Before implementation, determine `next_wg` and read **exactly one** current card from `references/bridge/` or `references/wg23-ui/`.
+- Before implementation, determine `next_wg` and read **exactly one** current card from `references/bridge/`.
 - Before file edits, obey the current card's **Handoff Card**.
 - WG-13～21 may edit **only** project-root `main.py` unless the current card explicitly allows copying missing project assets.
 - WG-22 may edit **only** project-root `agent_core.py` and `main.py`.
-- WG-23 may edit **only** the selected UI file and project-local upload folder. It must not modify `agent_core.py` or `main.py`.
 - Preserve student-owned values: nick/display name, persona wording, comments, and local path choices unless the current card says they violate the challenge.
 - Do not copy reference files wholesale into answer files. References are structural checks, not shortcuts.
 - Do not implement future WG requirements. Finish and verify the current WG first.
@@ -41,8 +39,6 @@ Read only when needed:
 
 - `references/starter_main_wg21.py`: source for missing WG-13～21 blocks or blank `main.py`.
 - `references/reference_agent_core.py` and `references/reference_main.py`: WG-22 structure checks only.
-- `references/wg23-ui/index.md`: WG-23 UI shell choice after WG-22 is complete.
-- `references/wg23-ui/streamlit-ui.md` or `references/wg23-ui/chainlit-ui.md`: selected WG-23 UI implementation card.
 - `references/project_assets/`: copy missing `prompts/` or `templates/` files only when a card requires them.
 - `references/implementation-log.md`: logging format after successful verification.
 
@@ -59,8 +55,7 @@ splash
   -> guided?            # optional, WG-13～21 only
   -> implement_current
   -> verify_current
-  -> loop_or_wg22
-  -> ui_shell?          # WG-23 only after WG-22
+  -> loop_or_done       # complete after WG-22
   -> done
 ```
 
@@ -74,16 +69,6 @@ route(22)
   -> start_implementation?
   -> split_implementation
   -> verify_wg22
-```
-
-WG-23 uses:
-
-```text
-route(23)
-  -> ui_framework_choice
-  -> read_selected_ui_card
-  -> implement_ui_shell
-  -> verify_wg23
 ```
 
 ## Startup
@@ -106,10 +91,9 @@ Run `progress_scan`:
 2. If `main.py` is missing or empty and `agent_core.py` is absent, copy `references/starter_main_wg21.py` to `main.py`; then set `next_wg = 22`.
 3. If split files already exist, inspect whether WG-22 appears complete.
 4. If split files exist but WG-22 is incomplete, set `next_wg = 22` and enter WG-22 repair flow from `references/bridge/wg22-split-core.md`.
-5. If WG-22 is complete and no UI shell exists, set `next_wg = 23`.
-6. If a Streamlit or Chainlit UI shell already exists, offer review, redo, or refinement.
-7. Otherwise scan `main.py` using `references/wg_milestone_checklist.md` and compute `next_wg`.
-8. Read `references/bridge/index.md` or `references/wg23-ui/index.md`, then the card for `next_wg`.
+5. If WG-22 is complete, the advanced workshop is complete; offer verification, reflection, or the separate Dataset Streamlit Shell path if relevant.
+6. Otherwise scan `main.py` using `references/wg_milestone_checklist.md` and compute `next_wg`.
+7. Read `references/bridge/index.md`, then the card for `next_wg`.
 
 Do not say internal terms like `progress_scan`, `milestone`, or file paths unless needed for troubleshooting.
 
@@ -119,7 +103,6 @@ Do not say internal terms like `progress_scan`, `milestone`, or file paths unles
 |---|---|
 | 13～21 | Show the current challenge title and ask the two-option choice below |
 | 22 | Enter WG-22 contract-first flow from `references/bridge/wg22-split-core.md` |
-| 23 | Enter WG-23 UI shell choice from `references/wg23-ui/index.md` |
 | complete | Offer verification, reflection, or redo |
 
 For WG-13～21, ask exactly one choice:
@@ -170,22 +153,6 @@ Required behavior:
 - Only after explicit 「開始實作」 may edit `agent_core.py` and `main.py`.
 - Split in steps and run the WG-22 verification checklist.
 
-## WG-23 UI Shell
-
-WG-23 is special. Follow `references/wg23-ui/index.md`.
-
-Required behavior:
-
-- Do not offer the WG-13～21 direct/guided choice.
-- First explain the principle: **core wiring fixed, product experience free**.
-- Ask the student to choose Streamlit or Chainlit.
-- Read exactly one selected card: `streamlit-ui.md` or `chainlit-ui.md`.
-- Edit only the selected UI file and upload folder.
-- The UI must import `Agent`, initialize with `Agent.from_env()`, and call `agent.chat(..., on_token=...)`.
-- The UI must pass uploaded images as project-relative `image_path` values.
-- The UI must not copy core ReAct, JSONL, memory, tools, or multimodal logic.
-- For Chainlit, use an async adapter/queue; do not pass an `async def on_token` directly into synchronous `Agent.chat()`.
-
 ## Project Assets
 
 When WG-19 or later needs memory consolidation assets:
@@ -223,9 +190,8 @@ After a challenge passes verification:
 - If the agent begins editing before the required mode/contract, stop and return to routing.
 - If `main.py` is damaged during WG-13～21, preserve a backup before applying any starter-based replacement.
 - If WG-22 split fails, repair from the current WG-21 `main.py` and the WG-22 card. Do not wholesale copy reference answer files.
-- If WG-23 UI fails, repair only the UI file. Do not change `agent_core.py` unless the user explicitly asks to debug the core.
 - If unsure which WG is next, ask a single clarification question rather than guessing.
 
 ## Trigger Phrases
 
-peas-workshop-advanced-coach, PEAS workshop 進階教練, Bridge Mode, WG-13, WG-22, WG-23, 拆檔教練, Agent.chat, Streamlit, Chainlit, 核心與殼分家.
+peas-workshop-advanced-coach, PEAS workshop 進階教練, Bridge Mode, WG-13, WG-22, 拆檔教練, Agent.chat, 核心與 CLI 分家.

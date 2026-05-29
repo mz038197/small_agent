@@ -16,14 +16,12 @@ Use this file after `readiness_scan` determines the next unfinished workshop cha
 | 20 | `wg20-skills.md` | Ask: direct implementation or guided clarification |
 | 21 | `wg21-image.md` | Ask: direct implementation or guided clarification |
 | 22 | `wg22-split-core.md` | Contract-first flow; do not offer normal direct implementation |
-| 23 | `../wg23-ui/index.md` | UI shell choice: Streamlit or Chainlit |
 
 ## Universal Bridge Rules
 
 - Read only the card for the current `next_wg` before implementation.
 - WG-13 through WG-21 modify only project-root `main.py`.
 - WG-22 may modify only project-root `agent_core.py` and `main.py`.
-- WG-23 may modify only the selected UI file and project-local upload folder; it must not modify `agent_core.py` or `main.py`.
 - Preserve student-owned values: nick/display name, persona wording, comments, and local path choices unless they conflict with the current card.
 - Do not implement future WG requirements. Finish and verify the current WG first, then ask whether to continue.
 - Before any file edit, form the card's handoff card internally and obey its allowed files, forbidden changes, and verification items.
@@ -40,5 +38,3 @@ For WG-13 through WG-21, ask one concise choice:
 ```
 
 For WG-22, use the WG-22 card. It must start with contract alignment rather than the normal direct/guided choice.
-
-For WG-23, use `references/wg23-ui/index.md`. It must start with UI framework selection rather than the normal direct/guided choice.
