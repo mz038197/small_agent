@@ -584,7 +584,6 @@ def render_chat_panel(extra_context: str = "") -> None:
     status_text = ":green[●] Agent Core：已連接" if connected else ":red[●] Agent Core：未啟用"
     st.markdown(f"**{status_text}**")
     if not connected:
-        st.caption("請按下方按鈕，將你的 WG-22 Agent Core 連接到 Data Shell。")
         if restore_error:
             st.warning(restore_error)
         if st.button("啟用資料 Agent", type="primary", use_container_width=True):
@@ -594,7 +593,6 @@ def render_chat_panel(extra_context: str = "") -> None:
                 st.rerun()
             else:
                 st.error(message)
-        st.code("請介紹你自己，並說明你會如何協助我整理 CSV 資料。", language="text")
         st.chat_input("請先啟用資料 Agent...", disabled=True, key="data_chat_not_activated")
         return
 
