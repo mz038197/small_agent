@@ -13,12 +13,14 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from dataset_streamlit_shell.data_ui import (
-    FILTERED_DATASET_PATH,
+    ORIGINAL_DATASET_PATH,
+    WORKING_DATASET_PATH,
     _display_path,
     initialize_working_dataset,
     inject_style,
     load_dataset,
     load_working_dataset,
+    prepare_dataframe_for_display,
     read_uploaded_csv,
     render_chat_panel,
     render_column_pills,
@@ -148,7 +150,7 @@ main, side = st.columns([5, 3], gap="large")
 with main:
     st.title("資料上傳與預覽")
     st.caption(
-        "上傳 CSV 後會建立原始資料與整理工作資料；畫面篩選只影響預覽，不會覆蓋工作資料。"
+        "上傳 CSV 後會建立 Original 原始資料與 Working 工作資料；畫面篩選只影響預覽，不會覆蓋工作資料。"
     )
 
     uploaded = st.file_uploader("上傳 CSV", type=["csv"])
@@ -162,7 +164,7 @@ with main:
         reset_working_dataset()
         initialize_working_dataset(df)
         st.success(
-            "已上傳並建立原始資料 `current.csv` 與整理工作資料 `current_filtered.csv`。舊的分析資料集與整理紀錄已重置。"
+            "已上傳並建立 Original 原始資料 `original.csv` 與 Working 工作資料 `working.csv`。舊的 Ready 分析就緒資料與整理紀錄已重置。"
         )
 
     df = load_working_dataset()
@@ -170,25 +172,26 @@ with main:
         st.info("尚未載入資料。請上傳 CSV。")
     else:
         render_dataset_metrics(df)
-        st.markdown("##### COLUMNS")
+        st.markdown("##### 欄位")
         render_column_pills(df.columns)
 
         filtered = apply_filters(df)
 
-        st.markdown("##### TABLE")
+        st.markdown("##### 資料表")
         st.caption(
             f"目前顯示 {len(filtered):,} / {len(df):,} 筆；這是畫面篩選結果，不會寫回 CSV。"
         )
         with st.expander("技術資訊", expanded=False):
-            if FILTERED_DATASET_PATH.exists():
-                st.caption(f"目前基底資料：整理工作資料 `{_display_path(FILTERED_DATASET_PATH)}`")
+            if WORKING_DATASET_PATH.exists():
+                st.caption(f"目前基底資料：Working 工作資料 `{_display_path(WORKING_DATASET_PATH)}`")
             else:
-                st.caption("目前基底資料：原始資料 `dataset_streamlit_shell/data/current.csv`")
+                st.caption(f"目前基底資料：Original 原始資料 `{_display_path(ORIGINAL_DATASET_PATH)}`")
             st.caption("畫面篩選不會落檔；右側 Agent 會寫入整理工作資料。")
         st.dataframe(filtered, use_container_width=True, hide_index=True)
 
         with st.expander("欄位統計", expanded=False):
-            st.dataframe(df.describe(include="all").transpose(), use_container_width=True)
+            summary = df.describe(include="all").transpose()
+            st.dataframe(prepare_dataframe_for_display(summary), use_container_width=True)
 
 with side:
     render_chat_panel()

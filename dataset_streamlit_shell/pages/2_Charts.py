@@ -17,13 +17,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from dataset_streamlit_shell.data_ui import (
-    ANALYSIS_READY_PATH,
-    DATASET_PATH,
-    FILTERED_DATASET_PATH,
+    ORIGINAL_DATASET_PATH,
+    READY_DATASET_PATH,
+    WORKING_DATASET_PATH,
     _display_path,
     inject_style,
-    load_analysis_dataset,
     load_dataset,
+    load_ready_dataset,
     render_chat_panel,
     render_dataset_metrics,
 )
@@ -32,7 +32,7 @@ from dataset_streamlit_shell.data_ui import (
 st.set_page_config(page_title="通用圖表", page_icon="CH", layout="wide")
 inject_style()
 
-COUNT_ROWS = "Count rows"
+COUNT_ROWS = "資料筆數"
 ChartType = Literal["bar", "pie", "stacked_bar", "line", "radar", "histogram"]
 Aggregation = Literal["count", "sum", "mean", "median"]
 
@@ -67,36 +67,36 @@ def _all_columns(df: pd.DataFrame) -> list[str]:
 
 
 def _load_chart_dataset(source: str) -> tuple[pd.DataFrame | None, str, Path | None, str | None]:
-    if source == "分析資料集":
-        dataset = load_analysis_dataset()
+    if source == "Ready 分析就緒資料":
+        dataset = load_ready_dataset()
         return (
             dataset,
-            "分析資料集",
-            ANALYSIS_READY_PATH if dataset is not None else None,
-            None if dataset is not None else "尚未建立分析資料集，請先到「建立分析資料集」頁產生 analysis_ready.csv。",
+            "Ready 分析就緒資料",
+            READY_DATASET_PATH if dataset is not None else None,
+            None if dataset is not None else "尚未建立 Ready 分析就緒資料，請先到「建立 Ready 分析就緒資料」頁產生 ready.csv。",
         )
 
-    if source == "整理工作資料":
-        if FILTERED_DATASET_PATH.exists():
+    if source == "Working 工作資料":
+        if WORKING_DATASET_PATH.exists():
             return (
-                pd.read_csv(FILTERED_DATASET_PATH),
-                "整理工作資料",
-                FILTERED_DATASET_PATH,
+                pd.read_csv(WORKING_DATASET_PATH),
+                "Working 工作資料",
+                WORKING_DATASET_PATH,
                 None,
             )
         fallback = load_dataset()
         return (
             fallback,
-            "原始資料",
-            DATASET_PATH if fallback is not None else None,
-            "尚未找到整理工作資料，已改用原始資料。請回到「資料上傳與預覽」重新上傳或建立工作資料。",
+            "Original 原始資料",
+            ORIGINAL_DATASET_PATH if fallback is not None else None,
+            "尚未找到 Working 工作資料，已改用 Original 原始資料。請回到「資料上傳與預覽」重新上傳或建立工作資料。",
         )
 
     dataset = load_dataset()
     return (
         dataset,
-        "原始資料",
-        DATASET_PATH if dataset is not None else None,
+        "Original 原始資料",
+        ORIGINAL_DATASET_PATH if dataset is not None else None,
         None,
     )
 
@@ -210,7 +210,7 @@ def _render_bar_chart(frame: pd.DataFrame, x_col: str, title: str) -> plt.Figure
     ax.bar(frame[x_col].astype(str), frame["value"])
     ax.set_title(title)
     ax.set_xlabel(x_col)
-    ax.set_ylabel("Value")
+    ax.set_ylabel("數值")
     ax.tick_params(axis="x", rotation=35)
     return fig
 
@@ -235,8 +235,8 @@ def _render_stacked_bar_chart(frame: pd.DataFrame, title: str) -> plt.Figure:
     fig, ax = _new_figure()
     frame.plot(kind="bar", stacked=True, ax=ax)
     ax.set_title(title)
-    ax.set_xlabel(frame.index.name or "Category")
-    ax.set_ylabel("Value")
+    ax.set_xlabel(frame.index.name or "類別")
+    ax.set_ylabel("數值")
     ax.tick_params(axis="x", rotation=35)
     ax.legend(title=frame.columns.name, bbox_to_anchor=(1.02, 1), loc="upper left")
     return fig
@@ -257,7 +257,7 @@ def _render_line_chart(
         ax.plot(frame[x_col].astype(str), frame["value"], marker="o")
     ax.set_title(title)
     ax.set_xlabel(x_col)
-    ax.set_ylabel("Value")
+    ax.set_ylabel("數值")
     ax.tick_params(axis="x", rotation=35)
     return fig
 
@@ -268,7 +268,7 @@ def _render_histogram(df: pd.DataFrame, column: str, bins: int, title: str) -> p
     ax.hist(values, bins=bins)
     ax.set_title(title)
     ax.set_xlabel(column)
-    ax.set_ylabel("Frequency")
+    ax.set_ylabel("筆數")
     return fig
 
 
@@ -328,7 +328,18 @@ def _chart_filename(chart_type: ChartType) -> str:
 def _format_measure(y_col: str, aggregation: str) -> str:
     if y_col == COUNT_ROWS or aggregation == "count":
         return "筆數"
-    return f"{aggregation} {y_col}"
+    labels = {"sum": "總和", "mean": "平均", "median": "中位數"}
+    return f"{y_col} 的{labels.get(aggregation, aggregation)}"
+
+
+def _aggregation_value(label: str) -> Aggregation:
+    values: dict[str, Aggregation] = {
+        "筆數": "count",
+        "總和": "sum",
+        "平均": "mean",
+        "中位數": "median",
+    }
+    return values.get(label, "count")
 
 
 def _show_summary(items: dict[str, str | int | None]) -> None:
@@ -367,7 +378,7 @@ with main:
 
     requested_source = st.radio(
         "資料來源",
-        ["整理工作資料", "分析資料集", "原始資料"],
+        ["Working 工作資料", "Ready 分析就緒資料", "Original 原始資料"],
         horizontal=True,
         key="chart_data_source",
     )
@@ -376,7 +387,7 @@ with main:
         st.warning(source_warning)
 
     if df is None:
-        st.info("請先到「資料上傳與預覽」頁上傳 CSV，或先建立分析資料集。")
+        st.info("請先到「資料上傳與預覽」頁上傳 CSV，或先建立 Ready 分析就緒資料。")
     else:
         render_dataset_metrics(df)
         st.caption(f"目前使用：{source_label}")
@@ -417,22 +428,23 @@ with main:
                     y_col = c2.selectbox("數值欄位", measures, key=f"{chart_type}_y")
                     aggregation = c3.selectbox(
                         "聚合方式",
-                        ["count", "sum", "mean", "median"],
+                        ["筆數", "總和", "平均", "中位數"],
                         key=f"{chart_type}_agg",
                     )
-                    top_n = st.slider("Top N", 3, 30, 10, key=f"{chart_type}_top_n")
+                    top_n = st.slider("顯示前 N 類", 3, 30, 10, key=f"{chart_type}_top_n")
 
-                    if y_col != COUNT_ROWS and aggregation != "count" and y_col not in numeric_cols:
-                        st.warning("Y 欄位需要是數值欄，或改用 Count rows。")
+                    aggregation_value = _aggregation_value(aggregation)
+                    if y_col != COUNT_ROWS and aggregation_value != "count" and y_col not in numeric_cols:
+                        st.warning("Y 欄位需要是數值欄，或改用資料筆數。")
                     else:
                         frame = _ordered_grouped_frame(
                             df,
                             x_col,
                             y_col,
-                            aggregation,  # type: ignore[arg-type]
+                            aggregation_value,  # type: ignore[arg-type]
                             top_n=top_n,
                         )
-                        title = f"{_format_measure(y_col, aggregation)} by {x_col}"
+                        title = f"{x_col} 的 {_format_measure(y_col, aggregation_value)}"
                         if chart_type == "bar":
                             fig = _render_bar_chart(frame, x_col, title)
                         else:
@@ -444,7 +456,7 @@ with main:
                                 "分類欄位": x_col,
                                 "數值欄位": y_col,
                                 "聚合方式": aggregation,
-                                "Top N": top_n,
+                                "顯示前 N 類": top_n,
                             }
                         )
 
@@ -456,22 +468,23 @@ with main:
                     y_col = c3.selectbox("數值欄位", measures, key="stacked_y")
                     aggregation = c4.selectbox(
                         "聚合方式",
-                        ["count", "sum", "mean", "median"],
+                        ["筆數", "總和", "平均", "中位數"],
                         key="stacked_agg",
                     )
-                    top_n = c5.slider("Top N", 3, 30, 10, key="stacked_top_n")
+                    top_n = c5.slider("顯示前 N 類", 3, 30, 10, key="stacked_top_n")
                     if x_col == stack_col:
                         st.warning("X 分類欄位和堆疊分組欄位不能相同。")
                     else:
+                        aggregation_value = _aggregation_value(aggregation)
                         frame = _stacked_frame(
                             df,
                             x_col,
                             stack_col,
                             y_col,
-                            aggregation,  # type: ignore[arg-type]
+                            aggregation_value,  # type: ignore[arg-type]
                             top_n=top_n,
                         )
-                        title = f"{_format_measure(y_col, aggregation)} by {x_col}, stacked by {stack_col}"
+                        title = f"{x_col} 依 {stack_col} 堆疊的 {_format_measure(y_col, aggregation_value)}"
                         fig = _render_stacked_bar_chart(frame, title)
                         summary.update(
                             {
@@ -479,7 +492,7 @@ with main:
                                 "堆疊分組欄位": stack_col,
                                 "數值欄位": y_col,
                                 "聚合方式": aggregation,
-                                "Top N": top_n,
+                                "顯示前 N 類": top_n,
                             }
                         )
 
@@ -490,7 +503,7 @@ with main:
                     c3, c4 = st.columns(2)
                     aggregation = c3.selectbox(
                         "聚合方式",
-                        ["count", "sum", "mean", "median"],
+                        ["筆數", "總和", "平均", "中位數"],
                         key="line_agg",
                     )
                     group_options = ["不分組"] + all_cols
@@ -499,14 +512,15 @@ with main:
                     if group_col == x_col:
                         st.warning("X 軸欄位和分組欄位不能相同。")
                     else:
+                        aggregation_value = _aggregation_value(aggregation)
                         frame = _line_frame(
                             df,
                             x_col,
                             y_col,
-                            aggregation,  # type: ignore[arg-type]
+                            aggregation_value,  # type: ignore[arg-type]
                             group_col,
                         )
-                        title = f"{_format_measure(y_col, aggregation)} over {x_col}"
+                        title = f"{_format_measure(y_col, aggregation_value)} 隨 {x_col} 變化"
                         fig = _render_line_chart(frame, x_col, group_col, title)
                         summary.update(
                             {
@@ -523,10 +537,10 @@ with main:
                     else:
                         c1, c2 = st.columns(2)
                         x_col = c1.selectbox("數值欄位", numeric_cols, key="hist_x")
-                        bins = c2.slider("Bins", 5, 80, 20, key="hist_bins")
-                        title = f"{x_col} distribution"
+                        bins = c2.slider("分箱數", 5, 80, 20, key="hist_bins")
+                        title = f"{x_col} 分布"
                         fig = _render_histogram(df, x_col, bins, title)
-                        summary.update({"數值欄位": x_col, "Bins": bins})
+                        summary.update({"數值欄位": x_col, "分箱數": bins})
 
                 elif chart_type == "radar":
                     if len(numeric_cols) < 3:
@@ -541,18 +555,19 @@ with main:
                         c1, c2 = st.columns(2)
                         aggregation = c1.selectbox(
                             "聚合方式",
-                            ["mean", "sum", "median"],
+                            ["平均", "總和", "中位數"],
                             key="radar_agg",
                         )
                         normalize = c2.checkbox("標準化到相同尺度", value=True)
                         if len(selected) < 3:
                             st.warning("雷達圖至少需要 3 個數值欄位。")
                         else:
-                            title = f"Radar chart ({aggregation})"
+                            aggregation_value = _aggregation_value(aggregation)
+                            title = f"雷達圖（{aggregation}）"
                             fig = _render_radar_chart(
                                 df,
                                 selected,
-                                aggregation,  # type: ignore[arg-type]
+                                aggregation_value,  # type: ignore[arg-type]
                                 normalize=normalize,
                                 title=title,
                             )

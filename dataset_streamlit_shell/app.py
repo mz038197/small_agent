@@ -10,14 +10,14 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from dataset_streamlit_shell.data_ui import (
-    ANALYSIS_READY_PATH,
-    DATASET_PATH,
-    FILTERED_DATASET_PATH,
+    ORIGINAL_DATASET_PATH,
+    READY_DATASET_PATH,
+    WORKING_DATASET_PATH,
     SHELL_ROOT,
     _display_path,
     inject_style,
-    load_analysis_dataset,
     load_dataset,
+    load_ready_dataset,
     load_working_dataset,
     render_chat_panel,
     render_column_pills,
@@ -25,7 +25,7 @@ from dataset_streamlit_shell.data_ui import (
 )
 
 
-st.set_page_config(page_title="CSV Data Agent Shell", page_icon="CSV", layout="wide")
+st.set_page_config(page_title="資料學習實驗室", page_icon="CSV", layout="wide")
 inject_style()
 
 
@@ -33,17 +33,17 @@ def overview() -> None:
     main, side = st.columns([5, 3], gap="large")
 
     with main:
-        st.title("Dataset Learning Lab")
+        st.title("資料學習實驗室")
         st.caption(
-            "上傳 CSV，透過 Agent 協作整理工作資料，建立可進入 Wald / PCA 的分析資料集。"
+            "上傳 CSV，透過 Agent 協作整理 Working 工作資料，建立 Ready 分析就緒資料。"
         )
 
         source_df = load_dataset()
         working_df = load_working_dataset()
-        analysis_df = load_analysis_dataset()
+        ready_df = load_ready_dataset()
         df = working_df if working_df is not None else source_df
         if df is None:
-            st.info("請到「資料上傳與預覽」頁上傳 CSV。上傳後會建立原始資料與整理工作資料。")
+            st.info("請到「資料上傳與預覽」頁上傳 CSV。上傳後會建立 Original 原始資料與 Working 工作資料。")
             return
 
         st.markdown('<div class="data-card">', unsafe_allow_html=True)
@@ -52,19 +52,19 @@ def overview() -> None:
 
         st.divider()
         st.markdown("##### 資料生命週期")
-        st.write("原始資料：上傳後保留，不直接修改。")
-        st.write("整理工作資料：Agent 協作整理與診斷的主要工作區。")
-        st.write("分析資料集：整理完成後建立，供 Wald / PCA 使用。")
+        st.write("Original 原始資料：上傳後保留，不直接修改。")
+        st.write("Working 工作資料：Agent 協作整理與診斷的主要工作區。")
+        st.write("Ready 分析就緒資料：整理完成後凍結，供後續學習、分析與訓練使用。")
         with st.expander("技術資訊", expanded=False):
-            st.caption(f"原始資料檔：`{_display_path(DATASET_PATH)}`")
-            st.caption(f"整理工作資料檔：`{_display_path(FILTERED_DATASET_PATH)}`")
-            st.caption(f"分析資料集檔：`{_display_path(ANALYSIS_READY_PATH)}`")
+            st.caption(f"Original 原始資料檔：`{_display_path(ORIGINAL_DATASET_PATH)}`")
+            st.caption(f"Working 工作資料檔：`{_display_path(WORKING_DATASET_PATH)}`")
+            st.caption(f"Ready 分析就緒資料檔：`{_display_path(READY_DATASET_PATH)}`")
         render_column_pills(df.columns)
 
-        if analysis_df is None:
-            st.warning("尚未建立分析資料集。完成資料整理後，請到「建立分析資料集」頁產生 `analysis_ready.csv`。")
+        if ready_df is None:
+            st.warning("尚未建立 Ready 分析就緒資料。完成資料整理後，請到「建立 Ready 分析就緒資料」頁產生 `ready.csv`。")
         else:
-            st.success(f"分析資料集已建立：{len(analysis_df):,} 筆、{len(analysis_df.columns):,} 欄。")
+            st.success(f"Ready 分析就緒資料已建立：{len(ready_df):,} 筆、{len(ready_df.columns):,} 欄。")
 
         st.markdown("##### 快速預覽")
         st.dataframe(df.head(12), use_container_width=True, hide_index=True)
@@ -73,9 +73,9 @@ def overview() -> None:
         st.markdown(
             """
 1. 在「資料上傳與預覽」上傳或更換 CSV。
-2. 到「AI 協作整理流程」診斷 `current_filtered.csv`，請右側 Agent 一步一步整理資料。
-3. 在「建立分析資料集」產生 `analysis_ready.csv`。
-4. Wald / PCA 頁面預設讀取 `analysis_ready.csv`。
+2. 到「AI 協作整理流程」診斷 `working.csv`，請右側 Agent 一步一步整理資料。
+3. 在「建立 Ready 分析就緒資料」產生 `ready.csv`。
+4. 後續學習頁面預設讀取 `ready.csv`。
 """
         )
 
@@ -97,7 +97,7 @@ pages = {
         st.Page(str(SHELL_ROOT / "pages" / "7_Categorical.py"), title="類別欄位整理"),
         st.Page(str(SHELL_ROOT / "pages" / "8_Encoding.py"), title="類別欄位編碼"),
         st.Page(str(SHELL_ROOT / "pages" / "9_Correlation.py"), title="數值相關性"),
-        st.Page(str(SHELL_ROOT / "pages" / "8_Analysis_Ready.py"), title="建立分析資料集"),
+        st.Page(str(SHELL_ROOT / "pages" / "8_Ready.py"), title="建立 Ready 分析就緒資料"),
     ],
     "統計推論": [
         st.Page(str(SHELL_ROOT / "pages" / "9_Wald.py"), title="Wald 法"),

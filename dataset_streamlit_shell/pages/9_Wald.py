@@ -69,9 +69,9 @@ def _render_wald(df: pd.DataFrame) -> None:
         st.write(f"95% Wald 信賴區間：約 [{lower:.3f}, {upper:.3f}]")
 
     st.markdown("##### 建議問 Agent")
-    st.code("請根據目前分析資料集，說明 Wald 法在這個欄位上的適用性與限制。", language="text")
+    st.code("請根據目前 Ready 分析就緒資料，說明 Wald 法在這個欄位上的適用性與限制。", language="text")
     st.code("請解釋剛剛的 Wald 信賴區間代表什麼，並指出樣本數是否足夠。", language="text")
     st.caption(f"標準常態 1.96 對應累積機率約 {_normal_cdf(1.96):.3f}。")
 
 
-render_analysis_shell("Wald 法", "以分析資料集進行比例或平均數的 Wald 概念檢查。", _render_wald)
+render_analysis_shell("Wald 法", "以 Ready 分析就緒資料進行比例或平均數的 Wald 概念檢查。", _render_wald)

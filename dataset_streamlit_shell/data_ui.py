@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import contextlib
+import importlib.util
 import io
 import json
 import sys
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 import pandas as pd
 import streamlit as st
@@ -17,15 +18,13 @@ PROJECT_ROOT = SHELL_ROOT.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from agent_core import Agent
-
-
 DATA_DIR = SHELL_ROOT / "data"
 SESSION_DIR = SHELL_ROOT / "sessions"
 CHAT_IMAGE_DIR = SHELL_ROOT / "uploads" / "chat_images"
-DATASET_PATH = DATA_DIR / "current.csv"
-FILTERED_DATASET_PATH = DATA_DIR / "current_filtered.csv"
-ANALYSIS_READY_PATH = DATA_DIR / "analysis_ready.csv"
+AGENT_ACTIVATION_MARKER_PATH = SHELL_ROOT / ".agent_core_activated"
+ORIGINAL_DATASET_PATH = DATA_DIR / "original.csv"
+WORKING_DATASET_PATH = DATA_DIR / "working.csv"
+READY_DATASET_PATH = DATA_DIR / "ready.csv"
 CLEANING_LOG_PATH = DATA_DIR / "cleaning_log.jsonl"
 MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024
 
@@ -59,6 +58,15 @@ def inject_style() -> None:
         border: 1px solid rgba(90, 160, 255, 0.24);
         font-size: 0.8rem;
     }
+    .data-agent-title-spacer {
+        height: 0.75rem;
+    }
+    .data-agent-title-text {
+        font-size: 1.25rem;
+        font-weight: 800;
+        line-height: 1.5;
+        margin-bottom: 0.55rem;
+    }
 </style>
 """,
         unsafe_allow_html=True,
@@ -75,6 +83,58 @@ def _ensure_session_dir() -> None:
 
 def _ensure_chat_image_dir() -> None:
     CHAT_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def load_agent_class(project_root: Path = PROJECT_ROOT) -> tuple[type[Any] | None, str | None]:
+    agent_core_path = project_root / "agent_core.py"
+    if not agent_core_path.exists():
+        return None, "請確認 agent_core.py 已放在專案根目錄。"
+
+    module_name = f"_dataset_shell_agent_core_{uuid.uuid4().hex}"
+    spec = importlib.util.spec_from_file_location(module_name, agent_core_path)
+    if spec is None or spec.loader is None:
+        return None, "已找到 agent_core.py，但無法載入這個檔案。"
+
+    inserted_path = False
+    project_root_text = str(project_root)
+    if project_root_text not in sys.path:
+        sys.path.insert(0, project_root_text)
+        inserted_path = True
+
+    try:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)
+    except Exception as exc:
+        return None, f"已找到 agent_core.py，但無法匯入 Agent：{exc}"
+    finally:
+        sys.modules.pop(module_name, None)
+        if inserted_path:
+            with contextlib.suppress(ValueError):
+                sys.path.remove(project_root_text)
+
+    agent_class = getattr(module, "Agent", None)
+    if agent_class is None:
+        return None, "已找到 agent_core.py，但檔案內沒有 Agent 類別。"
+    return agent_class, None
+
+
+def _clear_agent_cache() -> None:
+    st.session_state.pop("data_agent", None)
+    st.session_state.pop("data_agent_session_path", None)
+    st.session_state["data_agent_core_connected"] = False
+
+
+def _write_activation_marker() -> None:
+    AGENT_ACTIVATION_MARKER_PATH.write_text(
+        datetime.now().isoformat(timespec="seconds"),
+        encoding="utf-8",
+    )
+
+
+def _remove_activation_marker() -> None:
+    if AGENT_ACTIVATION_MARKER_PATH.exists():
+        AGENT_ACTIVATION_MARKER_PATH.unlink()
 
 
 def _save_uploaded_chat_image(uploaded_file) -> tuple[str | None, str | None]:
@@ -96,11 +156,11 @@ def _save_uploaded_chat_image(uploaded_file) -> tuple[str | None, str | None]:
     return target.relative_to(PROJECT_ROOT).as_posix(), None
 
 
-def save_dataset(df: pd.DataFrame, *, filtered: bool = False) -> None:
+def save_dataset(df: pd.DataFrame, *, working: bool = False) -> None:
     _ensure_data_dir()
-    target = FILTERED_DATASET_PATH if filtered else DATASET_PATH
+    target = WORKING_DATASET_PATH if working else ORIGINAL_DATASET_PATH
     df.to_csv(target, index=False)
-    if not filtered:
+    if not working:
         st.session_state["dataset_df"] = df
         st.session_state.pop("working_dataset_df", None)
         st.session_state.pop("selected_columns", None)
@@ -112,48 +172,48 @@ def refresh_working_dataset_cache() -> None:
     st.session_state.pop("working_dataset_df", None)
 
 
-def refresh_analysis_dataset_cache() -> None:
-    st.session_state.pop("analysis_ready_df", None)
+def refresh_ready_dataset_cache() -> None:
+    st.session_state.pop("ready_dataset_df", None)
 
 
 def load_dataset() -> pd.DataFrame | None:
     if "dataset_df" in st.session_state:
         return st.session_state["dataset_df"]
-    if DATASET_PATH.exists():
-        df = pd.read_csv(DATASET_PATH)
+    if ORIGINAL_DATASET_PATH.exists():
+        df = pd.read_csv(ORIGINAL_DATASET_PATH)
         st.session_state["dataset_df"] = df
         return df
     return None
 
 
 def load_working_dataset() -> pd.DataFrame | None:
-    if FILTERED_DATASET_PATH.exists():
-        df = pd.read_csv(FILTERED_DATASET_PATH)
+    if WORKING_DATASET_PATH.exists():
+        df = pd.read_csv(WORKING_DATASET_PATH)
         st.session_state["working_dataset_df"] = df
         return df
     return load_dataset()
 
 
-def load_analysis_dataset() -> pd.DataFrame | None:
-    if ANALYSIS_READY_PATH.exists():
-        df = pd.read_csv(ANALYSIS_READY_PATH)
-        st.session_state["analysis_ready_df"] = df
+def load_ready_dataset() -> pd.DataFrame | None:
+    if READY_DATASET_PATH.exists():
+        df = pd.read_csv(READY_DATASET_PATH)
+        st.session_state["ready_dataset_df"] = df
         return df
     return None
 
 
 def reset_working_dataset() -> None:
     st.session_state.pop("working_dataset_df", None)
-    if FILTERED_DATASET_PATH.exists():
-        FILTERED_DATASET_PATH.unlink()
-    reset_analysis_dataset()
+    if WORKING_DATASET_PATH.exists():
+        WORKING_DATASET_PATH.unlink()
+    reset_ready_dataset()
     reset_cleaning_log()
 
 
-def reset_analysis_dataset() -> None:
-    refresh_analysis_dataset_cache()
-    if ANALYSIS_READY_PATH.exists():
-        ANALYSIS_READY_PATH.unlink()
+def reset_ready_dataset() -> None:
+    refresh_ready_dataset_cache()
+    if READY_DATASET_PATH.exists():
+        READY_DATASET_PATH.unlink()
 
 
 def reset_cleaning_log() -> None:
@@ -162,7 +222,7 @@ def reset_cleaning_log() -> None:
 
 
 def initialize_working_dataset(df: pd.DataFrame) -> None:
-    save_dataset(df, filtered=True)
+    save_dataset(df, working=True)
     st.session_state["working_dataset_df"] = df
 
 
@@ -170,23 +230,23 @@ def reset_working_dataset_from_source() -> bool:
     source = load_dataset()
     if source is None:
         return False
-    save_dataset(source, filtered=True)
+    save_dataset(source, working=True)
     st.session_state["working_dataset_df"] = source
-    reset_analysis_dataset()
+    reset_ready_dataset()
     append_cleaning_log(
         action="重置工作資料",
         columns=source.columns,
         rows=len(source),
-        note="使用 current.csv 重建 current_filtered.csv。",
+        note="使用 original.csv 重建 working.csv。",
         actor="ui",
     )
     return True
 
 
-def create_analysis_dataset(df: pd.DataFrame) -> None:
+def create_ready_dataset(df: pd.DataFrame) -> None:
     _ensure_data_dir()
-    df.to_csv(ANALYSIS_READY_PATH, index=False)
-    st.session_state["analysis_ready_df"] = df
+    df.to_csv(READY_DATASET_PATH, index=False)
+    st.session_state["ready_dataset_df"] = df
 
 
 def append_cleaning_log(
@@ -239,19 +299,21 @@ def dataset_context(df: pd.DataFrame | None) -> str:
         return "目前尚未載入 CSV 資料。"
 
     columns = ", ".join(str(c) for c in df.columns)
-    source = _display_path(DATASET_PATH)
-    filtered = _display_path(FILTERED_DATASET_PATH)
-    analysis_ready = _display_path(ANALYSIS_READY_PATH)
+    source = _display_path(ORIGINAL_DATASET_PATH)
+    working = _display_path(WORKING_DATASET_PATH)
+    ready = _display_path(READY_DATASET_PATH)
     cleaning_log = _display_path(CLEANING_LOG_PATH)
     return (
         "目前 Streamlit 畫面使用一份通用 CSV 資料集。"
-        f"原始資料路徑：{source}，只作為重置來源，請勿覆蓋。"
-        f"整理工作資料路徑：{filtered}。上傳資料時系統會先建立一份和原始資料相同的工作副本。"
-        f"分析資料集路徑：{analysis_ready}，由整理工作資料匯出後供 Wald / PCA 使用。"
+        f"Original 原始資料路徑：{source}，只作為重置來源，請勿覆蓋。"
+        f"Working 工作資料路徑：{working}。上傳資料時系統會先建立一份和原始資料相同的工作副本。"
+        f"Ready 分析就緒資料路徑：{ready}，由工作資料凍結後供後續學習與分析使用。"
         f"資料共有 {len(df)} 筆、{len(df.columns)} 欄。欄位：{columns}。"
         "回答資料問題時，請使用你的 read_file 或 exec 工具實際讀取 CSV 後再回答。"
-        f"如果使用者要求補值、清理資料、計算欄位或新增欄位，請預設讀取並更新 {filtered}，不要覆蓋 {source}。"
-        f"修改整理工作資料後，請追加一筆 JSONL 紀錄到 {cleaning_log}，每行必須是單一 JSON 物件，"
+        f"如果使用者要求補值、清理資料、計算欄位或新增欄位，請預設讀取並更新 {working}，不要覆蓋 {source}。"
+        "如果需要撰寫 Python 腳本來整理或檢查資料，請只建立在 dataset_streamlit_shell/scripts/ 底下，"
+        "不要在專案根目錄建立臨時 Python 腳本。"
+        f"修改 Working 工作資料後，請追加一筆 JSONL 紀錄到 {cleaning_log}，每行必須是單一 JSON 物件，"
         "欄位固定為 created_at、actor、action、columns、rows、note。"
         "actor 必須是 agent；action 使用簡短 snake_case；columns 是受影響欄位陣列；"
         "rows 是受影響筆數；note 用繁體中文一句話摘要修改內容。"
@@ -276,10 +338,17 @@ def metric_value(df: pd.DataFrame, kind: str) -> str:
 
 def render_dataset_metrics(df: pd.DataFrame) -> None:
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Rows", f"{len(df):,}")
-    c2.metric("Columns", f"{len(df.columns):,}")
-    c3.metric("Missing Cells", metric_value(df, "missing"))
-    c4.metric("Numeric Columns", metric_value(df, "numeric"))
+    c1.metric("資料列數", f"{len(df):,}")
+    c2.metric("欄位數", f"{len(df.columns):,}")
+    c3.metric("缺失儲存格", metric_value(df, "missing"))
+    c4.metric("數值欄位", metric_value(df, "numeric"))
+
+
+def prepare_dataframe_for_display(df: pd.DataFrame) -> pd.DataFrame:
+    display = df.copy()
+    for column in display.select_dtypes(include=["object", "category"]).columns:
+        display[column] = display[column].map(lambda value: "" if pd.isna(value) else str(value))
+    return display
 
 
 def render_column_pills(columns: Iterable[str]) -> None:
@@ -381,23 +450,64 @@ def _reset_session_picker_widget() -> None:
     )
 
 
-def _get_agent_for_session(session_path: str) -> Agent:
+def _create_agent_for_session(session_path: str) -> Any:
+    agent_class, error = load_agent_class()
+    if error is not None or agent_class is None:
+        raise RuntimeError(error or "無法載入 Agent Core。")
+    return agent_class.from_env(session_path=session_path)
+
+
+def _get_agent_for_session(session_path: str) -> Any:
     if (
         "data_agent" not in st.session_state
         or st.session_state.get("data_agent_session_path") != session_path
     ):
-        st.session_state["data_agent"] = Agent.from_env(session_path=session_path)
+        st.session_state["data_agent"] = _create_agent_for_session(session_path)
         st.session_state["data_agent_session_path"] = session_path
+        st.session_state["data_agent_core_connected"] = True
     return st.session_state["data_agent"]
 
 
+def _activate_agent_core(session_path: str) -> tuple[bool, str]:
+    _clear_agent_cache()
+    try:
+        agent = _create_agent_for_session(session_path)
+    except RuntimeError as exc:
+        _remove_activation_marker()
+        return False, str(exc)
+    except Exception as exc:
+        _remove_activation_marker()
+        return False, f"Agent Core 啟用失敗：{exc}"
+
+    st.session_state["data_agent"] = agent
+    st.session_state["data_agent_session_path"] = session_path
+    st.session_state["data_agent_core_connected"] = True
+    _write_activation_marker()
+    return True, "Agent Core 已連接。"
+
+
+def _restore_agent_core_if_possible(session_path: str) -> tuple[bool, str | None]:
+    if st.session_state.get("data_agent_core_connected"):
+        return True, None
+    if not AGENT_ACTIVATION_MARKER_PATH.exists():
+        return False, None
+    ok, message = _activate_agent_core(session_path)
+    if ok:
+        return True, None
+    return False, message
+
+
 def render_chat_panel(extra_context: str = "") -> None:
-    st.markdown("##### DATA AGENT")
+    st.markdown('<div class="data-agent-title-spacer"></div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="data-agent-title-text">資料 Agent</div>',
+        unsafe_allow_html=True,
+    )
 
     df = load_working_dataset()
     if df is None:
         st.caption("先在「資料上傳與預覽」頁上傳 CSV，右側 Agent 才能分析同一份資料。")
-        st.chat_input("ask the agent...", disabled=True, key="data_chat_disabled")
+        st.chat_input("詢問 Agent...", disabled=True, key="data_chat_disabled")
         return
 
     sessions = _list_sessions()
@@ -409,7 +519,7 @@ def render_chat_panel(extra_context: str = "") -> None:
         st.session_state["data_chat_history"] = [
             (
                 "assistant",
-                "我可以協助分析目前上傳的 CSV。你可以問：有哪些缺失值？某個欄位如何分布？能否幫我新增計算欄位？",
+                "請先按「啟用資料 Agent」。啟用後，我可以協助分析目前上傳的 CSV。",
             )
         ]
 
@@ -417,7 +527,7 @@ def render_chat_panel(extra_context: str = "") -> None:
     ids = list(labels)
     if current_session and current_session not in labels:
         ids.insert(0, current_session)
-        labels[current_session] = "just now · current"
+        labels[current_session] = "剛剛 · 目前對話"
 
     picker_key = f"session_picker_{st.session_state.get('session_picker_version', 0)}"
 
@@ -429,7 +539,7 @@ def render_chat_panel(extra_context: str = "") -> None:
 
     pick_col, new_col, del_col = st.columns([6, 1, 1])
     pick_col.selectbox(
-        "session",
+        "對話紀錄",
         ids,
         index=selected_index,
         format_func=lambda value: labels.get(value, value),
@@ -438,14 +548,14 @@ def render_chat_panel(extra_context: str = "") -> None:
         key=picker_key,
         on_change=_on_pick,
     )
-    if new_col.button("", icon=":material/add:", help="new session", use_container_width=True):
+    if new_col.button("", icon=":material/add:", help="新增對話", use_container_width=True):
         _set_current_session(_new_session_path())
         _reset_session_picker_widget()
         st.rerun()
     if del_col.button(
         "",
         icon=":material/delete:",
-        help="delete session",
+        help="刪除對話",
         use_container_width=True,
         disabled=not current_session,
     ):
@@ -465,16 +575,32 @@ def render_chat_panel(extra_context: str = "") -> None:
 
     current_session = st.session_state.get("session_path")
     if not current_session:
-        st.caption("no sessions — click **+** to start one")
-        st.chat_input("ask...", disabled=True, key="data_chat_no_session")
+        st.caption("尚無對話紀錄，請按 **+** 新增對話。")
+        st.chat_input("詢問...", disabled=True, key="data_chat_no_session")
         return
 
-    current_session_path = PROJECT_ROOT / current_session
-    st.caption(f"對話紀錄：{_session_label(current_session_path)}")
-    st.caption("Agent 會讀取並更新「整理工作資料」。")
+    restored, restore_error = _restore_agent_core_if_possible(current_session)
+    connected = bool(st.session_state.get("data_agent_core_connected")) or restored
+    status_text = ":green[●] Agent Core：已連接" if connected else ":red[●] Agent Core：未啟用"
+    st.markdown(f"**{status_text}**")
+    if not connected:
+        st.caption("請按下方按鈕，將你的 WG-22 Agent Core 連接到 Data Shell。")
+        if restore_error:
+            st.warning(restore_error)
+        if st.button("啟用資料 Agent", type="primary", use_container_width=True):
+            ok, message = _activate_agent_core(current_session)
+            if ok:
+                st.success("Agent Core 已連接。你可以開始詢問資料 Agent。")
+                st.rerun()
+            else:
+                st.error(message)
+        st.code("請介紹你自己，並說明你會如何協助我整理 CSV 資料。", language="text")
+        st.chat_input("請先啟用資料 Agent...", disabled=True, key="data_chat_not_activated")
+        return
+
     with st.expander("技術資訊", expanded=False):
         st.caption(f"對話紀錄檔：`{current_session}`")
-        st.caption(f"整理工作資料檔：`{_display_path(FILTERED_DATASET_PATH)}`")
+        st.caption(f"Working 工作資料檔：`{_display_path(WORKING_DATASET_PATH)}`")
 
     uploaded_image = st.file_uploader(
         "附加圖片（選填）",
@@ -489,7 +615,15 @@ def render_chat_panel(extra_context: str = "") -> None:
         agent = _get_agent_for_session(current_session)
     except RuntimeError as exc:
         st.error(str(exc))
-        st.chat_input("ask the agent...", disabled=True, key="data_chat_no_key")
+        _clear_agent_cache()
+        _remove_activation_marker()
+        st.chat_input("詢問 Agent...", disabled=True, key="data_chat_no_key")
+        return
+    except Exception as exc:
+        st.error(f"Agent Core 連線失敗：`{exc}`")
+        _clear_agent_cache()
+        _remove_activation_marker()
+        st.chat_input("詢問 Agent...", disabled=True, key="data_chat_connect_failed")
         return
 
     chat = st.container(height=460, border=False)
@@ -498,7 +632,7 @@ def render_chat_panel(extra_context: str = "") -> None:
             with st.chat_message(role):
                 st.markdown(text)
 
-    if user_text := st.chat_input("ask the data agent...", key="data_chat"):
+    if user_text := st.chat_input("詢問資料 Agent...", key="data_chat"):
         image_path, image_error = _save_uploaded_chat_image(uploaded_image)
         display_user_text = user_text
         if image_error:
