@@ -24,6 +24,8 @@ DATA_DIR = SHELL_ROOT / "data"
 SESSION_DIR = SHELL_ROOT / "sessions"
 DATASET_PATH = DATA_DIR / "current.csv"
 FILTERED_DATASET_PATH = DATA_DIR / "current_filtered.csv"
+ANALYSIS_READY_PATH = DATA_DIR / "analysis_ready.csv"
+CLEANING_LOG_PATH = DATA_DIR / "cleaning_log.jsonl"
 
 
 def _display_path(path: Path) -> str:
@@ -81,6 +83,14 @@ def save_dataset(df: pd.DataFrame, *, filtered: bool = False) -> None:
         st.session_state.pop("filter_signature", None)
 
 
+def refresh_working_dataset_cache() -> None:
+    st.session_state.pop("working_dataset_df", None)
+
+
+def refresh_analysis_dataset_cache() -> None:
+    st.session_state.pop("analysis_ready_df", None)
+
+
 def load_dataset() -> pd.DataFrame | None:
     if "dataset_df" in st.session_state:
         return st.session_state["dataset_df"]
@@ -99,15 +109,100 @@ def load_working_dataset() -> pd.DataFrame | None:
     return load_dataset()
 
 
+def load_analysis_dataset() -> pd.DataFrame | None:
+    if ANALYSIS_READY_PATH.exists():
+        df = pd.read_csv(ANALYSIS_READY_PATH)
+        st.session_state["analysis_ready_df"] = df
+        return df
+    return None
+
+
 def reset_working_dataset() -> None:
     st.session_state.pop("working_dataset_df", None)
     if FILTERED_DATASET_PATH.exists():
         FILTERED_DATASET_PATH.unlink()
+    reset_analysis_dataset()
+    reset_cleaning_log()
+
+
+def reset_analysis_dataset() -> None:
+    refresh_analysis_dataset_cache()
+    if ANALYSIS_READY_PATH.exists():
+        ANALYSIS_READY_PATH.unlink()
+
+
+def reset_cleaning_log() -> None:
+    if CLEANING_LOG_PATH.exists():
+        CLEANING_LOG_PATH.unlink()
 
 
 def initialize_working_dataset(df: pd.DataFrame) -> None:
     save_dataset(df, filtered=True)
     st.session_state["working_dataset_df"] = df
+
+
+def reset_working_dataset_from_source() -> bool:
+    source = load_dataset()
+    if source is None:
+        return False
+    save_dataset(source, filtered=True)
+    st.session_state["working_dataset_df"] = source
+    reset_analysis_dataset()
+    append_cleaning_log(
+        action="重置工作資料",
+        columns=source.columns,
+        rows=len(source),
+        note="使用 current.csv 重建 current_filtered.csv。",
+        actor="ui",
+    )
+    return True
+
+
+def create_analysis_dataset(df: pd.DataFrame) -> None:
+    _ensure_data_dir()
+    df.to_csv(ANALYSIS_READY_PATH, index=False)
+    st.session_state["analysis_ready_df"] = df
+
+
+def append_cleaning_log(
+    *,
+    action: str,
+    columns: Iterable[str] | None = None,
+    rows: int | None = None,
+    note: str = "",
+    actor: str = "ui",
+) -> None:
+    _ensure_data_dir()
+    column_list = [] if columns is None else [str(column) for column in columns]
+    normalized_actor = actor if actor in {"agent", "ui"} else "ui"
+    entry = {
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "actor": normalized_actor,
+        "action": action,
+        "columns": column_list,
+        "rows": rows,
+        "note": note,
+    }
+    with CLEANING_LOG_PATH.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def load_cleaning_log(limit: int = 8) -> list[dict[str, object]]:
+    if not CLEANING_LOG_PATH.exists():
+        return []
+    entries: list[dict[str, object]] = []
+    with CLEANING_LOG_PATH.open(encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict):
+                entries.append(obj)
+    return entries[-limit:][::-1]
 
 
 def read_uploaded_csv(uploaded_file) -> pd.DataFrame:
@@ -121,13 +216,24 @@ def dataset_context(df: pd.DataFrame | None) -> str:
     columns = ", ".join(str(c) for c in df.columns)
     source = _display_path(DATASET_PATH)
     filtered = _display_path(FILTERED_DATASET_PATH)
+    analysis_ready = _display_path(ANALYSIS_READY_PATH)
+    cleaning_log = _display_path(CLEANING_LOG_PATH)
     return (
         "目前 Streamlit 畫面使用一份通用 CSV 資料集。"
-        f"完整資料路徑：{source}。"
-        f"Agent 工作資料路徑：{filtered}。上傳資料時系統會先建立一份和完整資料相同的工作副本。"
+        f"原始資料路徑：{source}，只作為重置來源，請勿覆蓋。"
+        f"整理工作資料路徑：{filtered}。上傳資料時系統會先建立一份和原始資料相同的工作副本。"
+        f"分析資料集路徑：{analysis_ready}，由整理工作資料匯出後供 Wald / PCA 使用。"
         f"資料共有 {len(df)} 筆、{len(df.columns)} 欄。欄位：{columns}。"
         "回答資料問題時，請使用你的 read_file 或 exec 工具實際讀取 CSV 後再回答。"
-        f"如果使用者要求補值、計算欄位或新增欄位，請讀取並更新 {filtered}。不要覆蓋 {source}。"
+        f"如果使用者要求補值、清理資料、計算欄位或新增欄位，請預設讀取並更新 {filtered}，不要覆蓋 {source}。"
+        f"修改整理工作資料後，請追加一筆 JSONL 紀錄到 {cleaning_log}，每行必須是單一 JSON 物件，"
+        "欄位固定為 created_at、actor、action、columns、rows、note。"
+        "actor 必須是 agent；action 使用簡短 snake_case；columns 是受影響欄位陣列；"
+        "rows 是受影響筆數；note 用繁體中文一句話摘要修改內容。"
+        "範例："
+        '{"created_at":"2026-05-29T12:05:41","actor":"agent",'
+        '"action":"fill_missing_age","columns":["Age"],"rows":177,'
+        '"note":"以中位數補齊 Age 欄位的空值。"}'
     )
 
 
@@ -265,7 +371,7 @@ def render_chat_panel() -> None:
 
     df = load_working_dataset()
     if df is None:
-        st.caption("先在 Database 頁上傳 CSV，右側 Agent 才能分析同一份資料。")
+        st.caption("先在「資料上傳與預覽」頁上傳 CSV，右側 Agent 才能分析同一份資料。")
         st.chat_input("ask the agent...", disabled=True, key="data_chat_disabled")
         return
 
@@ -340,10 +446,10 @@ def render_chat_panel() -> None:
 
     current_session_path = PROJECT_ROOT / current_session
     st.caption(f"對話紀錄：{_session_label(current_session_path)}")
-    st.caption("Agent 會讀取並更新「Agent 工作資料」。")
+    st.caption("Agent 會讀取並更新「整理工作資料」。")
     with st.expander("技術資訊", expanded=False):
         st.caption(f"對話紀錄檔：`{current_session}`")
-        st.caption(f"Agent 工作資料檔：`{_display_path(FILTERED_DATASET_PATH)}`")
+        st.caption(f"整理工作資料檔：`{_display_path(FILTERED_DATASET_PATH)}`")
 
     try:
         agent = _get_agent_for_session(current_session)

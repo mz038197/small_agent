@@ -28,7 +28,7 @@ from dataset_streamlit_shell.data_ui import (
 )
 
 
-st.set_page_config(page_title="CSV Database", page_icon="DB", layout="wide")
+st.set_page_config(page_title="資料上傳與預覽", page_icon="DB", layout="wide")
 inject_style()
 
 
@@ -146,9 +146,9 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
 main, side = st.columns([5, 3], gap="large")
 
 with main:
-    st.title("Database")
+    st.title("資料上傳與預覽")
     st.caption(
-        "上傳 CSV 後，中間表格會呈現目前工作資料；篩選條件只影響畫面，不會覆蓋 Agent 工作資料。"
+        "上傳 CSV 後會建立原始資料與整理工作資料；畫面篩選只影響預覽，不會覆蓋工作資料。"
     )
 
     uploaded = st.file_uploader("上傳 CSV", type=["csv"])
@@ -162,7 +162,7 @@ with main:
         reset_working_dataset()
         initialize_working_dataset(df)
         st.success(
-            "已上傳並建立完整資料 `current.csv` 與工作資料 `current_filtered.csv`。"
+            "已上傳並建立原始資料 `current.csv` 與整理工作資料 `current_filtered.csv`。舊的分析資料集與整理紀錄已重置。"
         )
 
     df = load_working_dataset()
@@ -181,10 +181,10 @@ with main:
         )
         with st.expander("技術資訊", expanded=False):
             if FILTERED_DATASET_PATH.exists():
-                st.caption(f"目前基底資料：Agent 工作資料 `{_display_path(FILTERED_DATASET_PATH)}`")
+                st.caption(f"目前基底資料：整理工作資料 `{_display_path(FILTERED_DATASET_PATH)}`")
             else:
-                st.caption("目前基底資料：完整資料 `dataset_streamlit_shell/data/current.csv`")
-            st.caption("畫面篩選不會落檔；只有右側 Agent 會寫入 Agent 工作資料。")
+                st.caption("目前基底資料：原始資料 `dataset_streamlit_shell/data/current.csv`")
+            st.caption("畫面篩選不會落檔；右側 Agent 會寫入整理工作資料。")
         st.dataframe(filtered, use_container_width=True, hide_index=True)
 
         with st.expander("欄位統計", expanded=False):
