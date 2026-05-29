@@ -25,9 +25,19 @@ from dataset_streamlit_shell.data_ui import (
 
 
 PromptList = list[str]
+CATEGORICAL_SELECTION_STATE_KEY = "confirmed_categorical_columns"
+CATEGORICAL_SELECTION_WIDGET_KEY = "selected_categorical_columns_widget"
+CATEGORICAL_SELECTION_EDIT_WIDGET_KEY = "selected_categorical_columns_edit_widget"
+CORRELATION_SELECTION_STATE_KEY = "confirmed_correlation_columns"
+CORRELATION_SELECTION_WIDGET_KEY = "selected_correlation_columns_widget"
 
 
-def _page_shell(title: str, caption: str, render_main: Callable[[pd.DataFrame], None]) -> None:
+def _page_shell(
+    title: str,
+    caption: str,
+    render_main: Callable[[pd.DataFrame], None],
+    extra_context_builder: Callable[[pd.DataFrame], str] | None = None,
+) -> None:
     main, side = st.columns([5, 3], gap="large")
     with main:
         st.title(title)
@@ -44,7 +54,8 @@ def _page_shell(title: str, caption: str, render_main: Callable[[pd.DataFrame], 
         render_main(df)
         _render_recent_log()
     with side:
-        render_chat_panel()
+        extra_context = extra_context_builder(df) if extra_context_builder else ""
+        render_chat_panel(extra_context=extra_context)
 
 
 def _render_refresh_controls() -> None:
@@ -203,9 +214,162 @@ def render_missing_page() -> None:
 
 
 def _column_kind(series: pd.Series) -> str:
-    if pd.api.types.is_numeric_dtype(series):
-        return "數值"
-    return "類別"
+    column_name = str(series.name or "")
+    normalized_name = column_name.lower()
+    non_null = series.dropna()
+
+    if _looks_like_identifier(normalized_name, non_null):
+        return "識別欄位"
+
+    if not pd.api.types.is_numeric_dtype(series):
+        return "類別"
+
+    unique_count = int(non_null.nunique())
+    if unique_count <= 2:
+        return "類別"
+
+    if _looks_like_coded_category(normalized_name, len(series), unique_count):
+        return "疑似類別（數字代碼）"
+
+    return "數值"
+
+
+def _looks_like_identifier(normalized_name: str, non_null: pd.Series) -> bool:
+    id_keywords = ["id", "編號", "序號", "流水號", "識別"]
+    if not any(keyword in normalized_name for keyword in id_keywords):
+        return False
+    return int(non_null.nunique()) >= max(int(len(non_null) * 0.8), 1)
+
+
+def _looks_like_coded_category(
+    normalized_name: str,
+    row_count: int,
+    unique_count: int,
+) -> bool:
+    category_keywords = [
+        "class",
+        "pclass",
+        "level",
+        "grade",
+        "rank",
+        "type",
+        "category",
+        "艙等",
+        "等級",
+        "類別",
+        "分類",
+    ]
+    if any(keyword in normalized_name for keyword in category_keywords):
+        return True
+    unique_ratio = unique_count / max(row_count, 1)
+    return unique_count <= 10 and unique_ratio <= 0.05
+
+
+def _teaching_categorical_columns(df: pd.DataFrame) -> list[str]:
+    return [
+        str(column)
+        for column in df.columns
+        if _column_kind(df[column]) in {"類別", "疑似類別（數字代碼）"}
+    ]
+
+
+def _teaching_numeric_columns(df: pd.DataFrame) -> list[str]:
+    return [
+        str(column)
+        for column in df.columns
+        if pd.api.types.is_numeric_dtype(df[column]) and _column_kind(df[column]) == "數值"
+    ]
+
+
+def _selected_categorical_columns(df: pd.DataFrame) -> list[str]:
+    selected = st.session_state.get(CATEGORICAL_SELECTION_STATE_KEY, [])
+    if not isinstance(selected, list):
+        return []
+    all_columns = {str(column) for column in df.columns}
+    return [str(column) for column in selected if str(column) in all_columns]
+
+
+def _set_selected_categorical_columns(df: pd.DataFrame, selected: list[str]) -> list[str]:
+    all_columns = {str(column) for column in df.columns}
+    cleaned = [str(column) for column in selected if str(column) in all_columns]
+    st.session_state[CATEGORICAL_SELECTION_STATE_KEY] = cleaned
+    return cleaned
+
+
+def _categorical_extra_context(df: pd.DataFrame) -> str:
+    selected = _selected_categorical_columns(df)
+    if not selected:
+        return "目前學生尚未在 UI 中確認類別欄位。"
+    return "目前學生在 UI 中確認的類別欄位：" + "、".join(selected) + "。"
+
+
+def _selected_correlation_columns(df: pd.DataFrame) -> list[str]:
+    selected = st.session_state.get(CORRELATION_SELECTION_STATE_KEY, [])
+    if not isinstance(selected, list):
+        return []
+    all_columns = {str(column) for column in df.columns}
+    return [str(column) for column in selected if str(column) in all_columns]
+
+
+def _set_selected_correlation_columns(df: pd.DataFrame, selected: list[str]) -> list[str]:
+    all_columns = {str(column) for column in df.columns}
+    cleaned = [str(column) for column in selected if str(column) in all_columns]
+    st.session_state[CORRELATION_SELECTION_STATE_KEY] = cleaned
+    return cleaned
+
+
+def _correlation_extra_context(df: pd.DataFrame) -> str:
+    selected = _selected_correlation_columns(df)
+    if not selected:
+        return "目前學生尚未在 UI 中確認要做數值相關性的欄位。"
+    return "目前學生在 UI 中確認要做數值相關性的欄位：" + "、".join(selected) + "。"
+
+
+def _column_overview(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "資料型態": [str(df[column].dtype) for column in columns],
+            "空值筆數": df[columns].isna().sum(),
+            "不同值數量": df[columns].nunique(dropna=True),
+            "常見值": [_safe_top_value(df[column]) for column in columns],
+        }
+    )
+
+
+def _encoding_preview_columns(df: pd.DataFrame, categorical: list[str]) -> list[str]:
+    all_columns = [str(column) for column in df.columns]
+    preview_columns: list[str] = []
+    for column in categorical:
+        related = [
+            candidate
+            for candidate in all_columns
+            if candidate == column or candidate.startswith(f"{column}_")
+        ]
+        for candidate in related:
+            if candidate not in preview_columns:
+                preview_columns.append(candidate)
+    return preview_columns
+
+
+def _display_encoding_preview(df: pd.DataFrame) -> pd.DataFrame:
+    preview = df.copy()
+    bool_columns = preview.select_dtypes(include="bool").columns
+    for column in bool_columns:
+        preview[column] = preview[column].astype(int)
+    return preview
+
+
+def _safe_top_value(series: pd.Series) -> object:
+    mode = series.mode(dropna=True)
+    if mode.empty:
+        return ""
+    return str(mode.iloc[0])
+
+
+def _category_kind_hint(kind: str) -> str:
+    if kind == "疑似類別（數字代碼）":
+        return "這個欄位雖然是數字，但不同值很少或名稱像等級/類別，建議先當類別理解。"
+    return "文字、布林或狀態欄位，適合先當類別理解。"
 
 
 def render_duplicates_page() -> None:
@@ -286,10 +450,11 @@ def render_duplicates_page() -> None:
 
 def render_outliers_page() -> None:
     def body(df: pd.DataFrame) -> None:
-        numeric = df.select_dtypes(include="number")
+        numeric_columns = _teaching_numeric_columns(df)
+        numeric = df[numeric_columns]
         st.markdown("##### 診斷：離群值")
         if numeric.empty:
-            st.warning("目前沒有數值欄位。")
+            st.warning("目前沒有適合檢查離群值的連續數值欄位。")
             return
 
         st.caption(
@@ -453,102 +618,163 @@ def render_numeric_page() -> None:
 
 def render_categorical_page() -> None:
     def body(df: pd.DataFrame) -> None:
-        categorical = df.select_dtypes(include=["object", "string", "category"])
         st.markdown("##### 診斷：類別欄位")
-        if categorical.empty:
-            st.warning("目前沒有類別欄位。")
-            return
-        overview = pd.DataFrame(
-            {
-                "missing_count": categorical.isna().sum(),
-                "unique_count": categorical.nunique(dropna=True),
-                "top_value": [
-                    categorical[column].mode(dropna=True).iloc[0]
-                    if not categorical[column].mode(dropna=True).empty
-                    else ""
-                    for column in categorical.columns
-                ],
-            }
+        st.info(
+            "類別欄位需要根據資料意義判斷，不只看資料型態。"
+            "請先和 Agent 討論哪些欄位應視為類別欄位，再在下方選取欄位查看分布。"
         )
-        st.dataframe(overview, use_container_width=True)
-        selected = st.selectbox("查看類別分布", [str(c) for c in categorical.columns])
-        counts = df[selected].fillna("Missing").astype(str).value_counts().head(30)
-        st.bar_chart(counts)
+        all_columns = [str(column) for column in df.columns]
+        st.markdown("###### 欄位輔助資訊")
+        st.dataframe(_column_overview(df, all_columns), use_container_width=True)
+
+        selected_columns = st.multiselect(
+            "請選擇你和 Agent 確認的類別欄位",
+            all_columns,
+            default=_selected_categorical_columns(df),
+            key=CATEGORICAL_SELECTION_WIDGET_KEY,
+        )
+        selected_columns = _set_selected_categorical_columns(df, selected_columns)
+        if not selected_columns:
+            st.warning("尚未選擇類別欄位。請先和 Agent 討論，再勾選你確認的欄位。")
+        else:
+            st.markdown("###### 已確認的類別欄位")
+            st.dataframe(_column_overview(df, selected_columns), use_container_width=True)
+            selected = st.selectbox(
+                "查看類別分布",
+                ["請選擇欄位"] + selected_columns,
+                key="categorical_distribution_column",
+            )
+            if selected != "請選擇欄位":
+                counts = df[selected].fillna("Missing").astype(str).value_counts().head(30)
+                st.bar_chart(counts)
         _render_prompts(
             [
-                "請檢查目前工作資料的類別欄位，列出缺失值與類別數量最多的欄位。",
-                f"請分析 `{selected}` 欄位的類別分布，建議是否需要合併稀有類別。",
-                f"請把 `{selected}` 欄位的缺失值填成 Other，並回報修改了幾筆。",
+                "請根據目前工作資料，判斷哪些欄位適合視為類別欄位，並逐一說明理由。",
+                "請指出哪些數字欄位其實可能是類別代碼，哪些數字欄位比較像真正的數值或計數。",
+                "請根據我選出的類別欄位，檢查是否有需要合併稀有類別或補上 Unknown 的欄位。",
             ]
         )
 
-    _page_shell("類別欄位診斷", "檢查類別欄位缺失值、類別分布與稀有類別。", body)
+    _page_shell(
+        "類別欄位診斷",
+        "由學生和 Agent 協作確認哪些欄位應視為類別。",
+        body,
+        extra_context_builder=_categorical_extra_context,
+    )
 
 
 def render_encoding_page() -> None:
     def body(df: pd.DataFrame) -> None:
         st.markdown("##### 診斷：類別欄位編碼")
-        categorical = [str(c) for c in df.select_dtypes(include=["object", "string", "category"]).columns]
+        all_columns = [str(column) for column in df.columns]
+        categorical = _selected_categorical_columns(df)
         if categorical:
-            st.markdown("###### 類別欄位")
-            overview = pd.DataFrame(
-                {
-                    "unique_count": df[categorical].nunique(dropna=True),
-                    "missing_count": df[categorical].isna().sum(),
-                }
-            )
-            st.dataframe(overview, use_container_width=True)
+            st.success("已套用「類別欄位整理」頁確認的欄位。")
+            st.write("目前類別欄位：" + "、".join(categorical))
         else:
-            st.caption("目前沒有需要編碼的文字/類別欄位。")
+            st.warning("尚未選擇類別欄位。請先到「類別欄位整理」頁和 Agent 協作確認。")
+
+        with st.expander("需要修正選取欄位？", expanded=False):
+            edited_columns = st.multiselect(
+                "修正類別欄位",
+                all_columns,
+                default=categorical,
+                key=CATEGORICAL_SELECTION_EDIT_WIDGET_KEY,
+            )
+            categorical = _set_selected_categorical_columns(df, edited_columns)
+
+        if categorical:
+            st.markdown("###### 準備編碼的類別欄位")
+            overview = _column_overview(df, categorical)
+            overview["編碼提醒"] = [
+                "先和 Agent 確認要使用 One-Hot、Label Encoding，或保留原欄位。"
+                for _ in categorical
+            ]
+            st.dataframe(overview, use_container_width=True)
+
+            preview_columns = _encoding_preview_columns(df, categorical)
+            st.markdown("###### 目前工作資料預覽：類別欄位與編碼結果")
+            st.caption(
+                "請 Agent 完成編碼後，按「重新讀取工作資料」。"
+                "這裡會顯示原類別欄位與可能新增的編碼欄位，方便檢查 0/1 或數字編碼結果。"
+            )
+            if preview_columns:
+                st.dataframe(
+                    _display_encoding_preview(df[preview_columns].head(20)),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+            else:
+                st.caption("目前找不到可預覽的類別欄位或編碼結果欄位。")
         _render_prompts(
             [
-                "請檢查目前工作資料有哪些類別欄位需要編碼，並建議 Label Encoding 或 One-Hot Encoding。",
+                "請根據目前已選取的類別欄位，建議哪些欄位適合 One-Hot Encoding，哪些適合 Label Encoding。",
                 "請先不要修改資料，說明哪些欄位適合做 One-Hot Encoding，哪些不適合。",
                 "請針對適合的類別欄位新增 One-Hot Encoding 欄位，保留原欄位，並回報新增了哪些欄位。",
             ]
         )
 
-    _page_shell("類別欄位編碼", "把類別欄位轉成後續分析可用的數值表示。", body)
+    _page_shell(
+        "類別欄位編碼",
+        "把類別欄位轉成後續分析可用的數值表示。",
+        body,
+        extra_context_builder=_categorical_extra_context,
+    )
 
 
 def render_correlation_page() -> None:
     def body(df: pd.DataFrame) -> None:
         st.markdown("##### 診斷：數值相關性")
-        numeric = df.select_dtypes(include="number")
-        if len(numeric.columns) < 2:
-            st.warning("數值欄位少於 2 個，無法計算相關矩陣。")
+        st.info(
+            "請先和 Agent 討論哪些欄位適合做數值相關性分析，再在下方選取欄位。"
+            "選取至少兩個欄位後，系統只顯示這些欄位之間的完整相關矩陣。"
+        )
+        all_columns = [str(column) for column in df.columns]
+        st.markdown("###### 欄位輔助資訊")
+        st.dataframe(_column_overview(df, all_columns), use_container_width=True)
+
+        selected_columns = st.multiselect(
+            "請選擇你和 Agent 確認要做數值相關性的欄位",
+            all_columns,
+            default=_selected_correlation_columns(df),
+            key=CORRELATION_SELECTION_WIDGET_KEY,
+        )
+        selected_columns = _set_selected_correlation_columns(df, selected_columns)
+        if len(selected_columns) < 2:
+            st.warning("請至少選擇兩個欄位，才能計算相關性矩陣。")
             return
-        corr = numeric.corr(numeric_only=True)
+
+        numeric_frame = df[selected_columns].apply(pd.to_numeric, errors="coerce")
+        usable_columns = [
+            column for column in selected_columns if numeric_frame[column].notna().sum() >= 2
+        ]
+        skipped_columns = [column for column in selected_columns if column not in usable_columns]
+        if skipped_columns:
+            st.warning(
+                "以下欄位無法轉成足夠的數值資料，暫不納入相關矩陣："
+                + "、".join(skipped_columns)
+            )
+        if len(usable_columns) < 2:
+            st.warning("目前可計算相關性的欄位少於兩個，請重新選擇欄位。")
+            return
+
+        corr = numeric_frame[usable_columns].corr()
+        st.markdown("###### 相關性矩陣")
         st.dataframe(corr.style.format("{:.2f}"), use_container_width=True)
-        strong_pairs: list[dict[str, object]] = []
-        columns = list(corr.columns)
-        for left_index, left in enumerate(columns):
-            for right in columns[left_index + 1 :]:
-                value = corr.loc[left, right]
-                if pd.notna(value):
-                    strong_pairs.append(
-                        {
-                            "left": str(left),
-                            "right": str(right),
-                            "correlation": float(value),
-                            "abs_correlation": abs(float(value)),
-                        }
-                    )
-        st.markdown("###### 相關性最高的欄位組")
-        if strong_pairs:
-            strong_frame = pd.DataFrame(strong_pairs).sort_values("abs_correlation", ascending=False)
-            st.dataframe(strong_frame.head(12), use_container_width=True, hide_index=True)
-        else:
-            st.caption("目前沒有可排序的數值欄位組。")
         _render_prompts(
             [
-                "請解讀目前數值欄位的相關性，指出最值得注意的正相關與負相關。",
-                "請根據相關矩陣，判斷這份資料是否適合建立分析資料集，先不要修改資料。",
-                "請指出哪些欄位可能帶有重複資訊，後續做 PCA 時應該注意什麼。",
+                "請解讀我目前選取欄位之間的相關性矩陣，指出值得注意的關係。",
+                "請根據這些欄位的相關矩陣，判斷是否有欄位可能帶有重複資訊，先不要修改資料。",
+                "請說明這些欄位的相關性對後續 PCA 分析可能有什麼影響。",
             ]
         )
 
-    _page_shell("數值相關性", "在建立分析資料集之前，檢查數值欄位之間的關係。", body)
+    _page_shell(
+        "數值相關性",
+        "在建立分析資料集之前，檢查學生選取欄位之間的數值關係。",
+        body,
+        extra_context_builder=_correlation_extra_context,
+    )
 
 
 def render_encoding_correlation_page() -> None:

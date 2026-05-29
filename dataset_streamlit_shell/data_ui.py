@@ -22,10 +22,12 @@ from agent_core import Agent
 
 DATA_DIR = SHELL_ROOT / "data"
 SESSION_DIR = SHELL_ROOT / "sessions"
+CHAT_IMAGE_DIR = SHELL_ROOT / "uploads" / "chat_images"
 DATASET_PATH = DATA_DIR / "current.csv"
 FILTERED_DATASET_PATH = DATA_DIR / "current_filtered.csv"
 ANALYSIS_READY_PATH = DATA_DIR / "analysis_ready.csv"
 CLEANING_LOG_PATH = DATA_DIR / "cleaning_log.jsonl"
+MAX_CHAT_IMAGE_BYTES = 5 * 1024 * 1024
 
 
 def _display_path(path: Path) -> str:
@@ -69,6 +71,29 @@ def _ensure_data_dir() -> None:
 
 def _ensure_session_dir() -> None:
     SESSION_DIR.mkdir(exist_ok=True)
+
+
+def _ensure_chat_image_dir() -> None:
+    CHAT_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _save_uploaded_chat_image(uploaded_file) -> tuple[str | None, str | None]:
+    if uploaded_file is None:
+        return None, None
+
+    data = uploaded_file.getvalue()
+    if len(data) > MAX_CHAT_IMAGE_BYTES:
+        return None, "圖片超過 5 MB，請先壓縮後再上傳。"
+
+    suffix = Path(uploaded_file.name).suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp"}:
+        return None, "只支援 PNG、JPG、JPEG、WEBP 圖片。"
+
+    _ensure_chat_image_dir()
+    filename = f"chat_image_{datetime.now():%Y%m%d_%H%M%S}_{uuid.uuid4().hex[:8]}{suffix}"
+    target = CHAT_IMAGE_DIR / filename
+    target.write_bytes(data)
+    return target.relative_to(PROJECT_ROOT).as_posix(), None
 
 
 def save_dataset(df: pd.DataFrame, *, filtered: bool = False) -> None:
@@ -366,7 +391,7 @@ def _get_agent_for_session(session_path: str) -> Agent:
     return st.session_state["data_agent"]
 
 
-def render_chat_panel() -> None:
+def render_chat_panel(extra_context: str = "") -> None:
     st.markdown("##### DATA AGENT")
 
     df = load_working_dataset()
@@ -451,6 +476,15 @@ def render_chat_panel() -> None:
         st.caption(f"對話紀錄檔：`{current_session}`")
         st.caption(f"整理工作資料檔：`{_display_path(FILTERED_DATASET_PATH)}`")
 
+    uploaded_image = st.file_uploader(
+        "附加圖片（選填）",
+        type=["png", "jpg", "jpeg", "webp"],
+        key=f"data_chat_image_{current_session}",
+        help="圖片只會送給下一則訊息；支援 PNG/JPG/WEBP，大小上限 5 MB。",
+    )
+    if uploaded_image is not None:
+        st.image(uploaded_image, caption="下一則訊息會附上這張圖片", use_container_width=True)
+
     try:
         agent = _get_agent_for_session(current_session)
     except RuntimeError as exc:
@@ -465,12 +499,24 @@ def render_chat_panel() -> None:
                 st.markdown(text)
 
     if user_text := st.chat_input("ask the data agent...", key="data_chat"):
-        st.session_state["data_chat_history"].append(("user", user_text))
-        prompt = f"{dataset_context(df)}\n\n學生問題：{user_text}"
+        image_path, image_error = _save_uploaded_chat_image(uploaded_image)
+        display_user_text = user_text
+        if image_error:
+            st.warning(image_error)
+        elif image_path:
+            display_user_text = f"{user_text}\n\n（已附圖：{image_path}）"
+
+        st.session_state["data_chat_history"].append(("user", display_user_text))
+        context = dataset_context(df)
+        if extra_context.strip():
+            context = f"{context}\n\n【目前頁面狀態】{extra_context.strip()}"
+        prompt = f"{context}\n\n學生問題：{user_text}"
 
         with chat:
             with st.chat_message("user"):
                 st.markdown(user_text)
+                if uploaded_image is not None and image_path:
+                    st.image(uploaded_image, caption="已附圖", use_container_width=True)
             with st.chat_message("assistant"):
                 placeholder = st.empty()
                 answer_parts: list[str] = []
@@ -485,6 +531,7 @@ def render_chat_panel() -> None:
                     ):
                         final_text = agent.chat(
                             prompt,
+                            image_path=image_path,
                             on_token=on_token,
                         )
                 except Exception as exc:  # keep classroom UI alive during agent debugging
