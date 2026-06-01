@@ -8,9 +8,13 @@ dependencies = [
     "langchain-openai>=1.1.13",
     "matplotlib>=3.10.9",
     "openai>=1.68.0",
+    "openai-tts",
     "pandas>=2.3.3",
     "python-dotenv>=1.2.2",
     "sounddevice>=0.5.1",
     "streamlit>=1.57.0",
     "tensorflow>=2.21.0",
 ]
+
+[tool.uv.sources]
+openai-tts = { path = "../../openai-tts" }

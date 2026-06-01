@@ -52,6 +52,7 @@ sessions/
 dataset_streamlit_shell/data/*.csv
 dataset_streamlit_shell/sessions/*.jsonl
 dataset_streamlit_shell/uploads/
+dataset_streamlit_shell/scripts/
 .worktrees/
 uploads/
 

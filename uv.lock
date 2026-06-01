@@ -1164,6 +1164,28 @@ wheels = [
 ]
 
 [[package]]
+name = "openai-tts"
+version = "0.1.0"
+source = { directory = "../../openai-tts" }
+dependencies = [
+    { name = "numpy" },
+    { name = "openai" },
+    { name = "python-dotenv" },
+    { name = "sounddevice" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy", specifier = ">=2.0.0" },
+    { name = "openai", specifier = ">=1.68.0" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
+    { name = "pytest-mock", marker = "extra == 'dev'", specifier = ">=3.14.0" },
+    { name = "python-dotenv", specifier = ">=1.2.2" },
+    { name = "sounddevice", specifier = ">=0.5.1" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "opt-einsum"
 version = "3.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1940,6 +1962,7 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "matplotlib" },
     { name = "openai" },
+    { name = "openai-tts" },
     { name = "pandas" },
     { name = "python-dotenv" },
     { name = "sounddevice" },
@@ -1952,6 +1975,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=1.1.13" },
     { name = "matplotlib", specifier = ">=3.10.9" },
     { name = "openai", specifier = ">=1.68.0" },
+    { name = "openai-tts", directory = "../../openai-tts" },
     { name = "pandas", specifier = ">=2.3.3" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "sounddevice", specifier = ">=0.5.1" },
