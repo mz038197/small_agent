@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "jinja2>=3.1.0",
     "langchain-openai>=1.1.13",
     "matplotlib>=3.10.9",
     "numpy>=2.4.6",
@@ -22,3 +23,11 @@ dependencies = [
 
 [tool.uv.sources]
 openai-tts = { git = "https://github.com/mz038197/openai-tts.git" }
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]

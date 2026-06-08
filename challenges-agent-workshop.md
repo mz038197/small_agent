@@ -3,8 +3,8 @@
 - **基礎挑戰（手把手建立 Agent）（WG-01～WG-16）**：從 Python 入門到「能與模型對話、能呼叫工具、能把對話寫入／讀回檔案」的**概念與實作題**；請依題號順序完成，每題對照藍本在教師指定檔中實作與驗收。
 - **進階挑戰（AI Coding 實戰）（WG-17～WG-22）**：在基礎段之上，練習上下文裁切、送模前整理、長期記憶、Skills、多模態與 **Agent 核心拆分** 等**進階 Agent 行為**；題目較複雜，**建議搭配 AI 協作編程**（如 Cursor）完成；建議基礎段通過後再接續。
 - **全域串流要求（WG-10 起）**：除工具判斷、工具執行、JSONL 載入、長期記憶整併等**內部步驟**可使用 `invoke` 外，凡是「最後要顯示給使用者看的 assistant 文字回覆」都必須使用 `stream` 串流輸出；不得只以 `print(response.content)` 一次印出最終回答。若特定模型／供應商路徑暫不支援串流（例如部分 vision 驗收環境），須在程式註解或驗收說明中明確標示退回 `invoke` 的原因。
-- **合併示範 `agent_core.py`（WG-12～21 邏輯）之模型**：對話、ReAct、長期整併、附圖等**全程共用** **`ChatOpenAI(model="gpt-5.4-mini", temperature=0.2)`**；**不**另設 chat／consolidation／vision 等不同 model 名或環境變數分流。
-- **WG-22 拆檔後**：Agent 邏輯在 **`agent_core.py`**；CLI 進入點僅 **`main.py`**（`uv run main.py`）。**本規格不含 Web UI**（Streamlit 等為課堂口頭選修專題，不在驗收）。
+- **合併示範 `agent_core.py`（WG-12～21 邏輯）之模型**：對話、ReAct、長期整併、附圖等**全程共用**同一組 LLM 參數；預設來自 **`~/.peas-agent/config.json`** 之 **`llm.model`**／**`temperature`**／**`base_url`**（藍本預設 **`gpt-5.4-mini`**、**`0.2`**）；**不**另設 chat／consolidation／vision 分流。
+- **WG-22 拆檔後**：Agent 邏輯在 **`agent_core.py`**；CLI 進入點僅 **`main.py`**（`uv run main.py` 或 `uv run main.py -w .` 除錯）。執行期設定與 runtime 資料預設在 **`~/.peas-agent/`**（**`config.json`** + **`workspace/`**），**不**污染專案 repo。**本規格不含 Web UI**（Streamlit 等為課堂口頭選修專題，不在驗收）。
 
 ## ITS Python 基礎概念
 
@@ -35,15 +35,15 @@
 | 基礎 | **WG-09** | 櫃台問答不斷線——互動迴圈與多輪 `invoke` | `while`、`input`、關鍵字結束；每輪 `invoke`（非串流）。 | 3、5 |
 | 基礎 | **WG-10** | 回答像打字機——串流式 `stream` | 架構同 **WG-09**，改 `stream` + `print(..., end="", flush=True)`。 | 3、5 |
 | 基礎 | **WG-11** | 短期記憶只活在當下——RAM 對話脈絡 | `HumanMessage`／`AIMessage` 串列累積；`context_messages` 先組再串流，串流後才 `append`；關閉程式即清空。 | 3、4、5 |
-| 基礎 | **WG-12** | 人設寫進系統層——`SystemMessage` 與可變系統字串 | `**build_system_prompt()`**：課堂規則＋【本場次顯示名稱】；`**run_react_turn**` 內組 `**SystemMessage**`；`**system_text**`／`**history**` 分離（system 不進 JSONL）。 | 4、5 |
-| 基礎 | **WG-13** | 會查表才算真 Agent——工具與 ReAct（單檔） | 抽出 `**get_identity()**`（**【解題方式】**、**【依賴管理】**）；`**add_numbers**`、`@tool`、`bind_tools`、`**run_react_turn**`；`**ToolMessage**`；本題不要求 JSONL。 | 3、4、5 |
+| 基礎 | **WG-12** | 人設寫進系統層——`SystemMessage` 與可變系統字串 | `**build_system_prompt()`**：`**_get_identity()`**（`templates/agent/identity.md`）＋ workspace **`SOUL.md`／`USER.md`**（`**sync_workspace_templates**` 缺檔才建）；`**run_react_turn**` 內組 `**SystemMessage**`；`**system_text**`／`**history**` 分離（system 不進 JSONL）。 | 4、5 |
+| 基礎 | **WG-13** | 會查表才算真 Agent——工具與 ReAct（單檔） | **【解題方式】／【依賴管理】** 改在 **`SOUL.md`**；平台限制在 **`platform_policy.md`**；`**add_numbers**`、`@tool`、`bind_tools`、`**run_react_turn**`；`**ToolMessage**`；本題不要求 JSONL。 | 3、4、5 |
 | 基礎 | **WG-14** | 讓 Agent 有手有腳——`exec` 與檔案的 **`@tool` 最小組** | 在 **WG-13** 之 `**TOOLS**` 上追加五支檔案／shell 工具；`**resolve_workspace_path**`；`**exec**` UTF-8 子程序輸出；`**_TOOL_BY_NAME**`／`**_run_bound_tool**`。 | 4、5、6、7 |
 | 基礎 | **WG-15** | 對話落盤、人設不留痕——JSONL 先寫檔 | `**save_session_jsonl**`、`**_serialize_tool_calls**`；預設 `**session_wiki_wg.jsonl**`；格式對照專案根 `**session.jsonl.example**`；啟動**不**讀舊檔；**不**寫 system。 | 5、6 |
 | 基礎 | **WG-16** | 冷啟動撿回昨日脈絡——JSONL 載回 | `**load_session_jsonl**`、`**_row_to_message**`；啟動還原 `**history**`／`**session_meta**`；須還原 `**session.jsonl.example**` 同構 **ReAct** 鏈；壞行略過；關閉再開可接續。 | 6 |
 | 進階 | **WG-17** | 視窗太窄先裁舊帳——字元預算與整併邊界 | `get_token_budget`、`estimate_message_tokens`、`pick_consolidation_boundary`、`last_consolidated`；超線裁切 `**past`**；成本含 `**ToolMessage**`（與 **WG-13**／**WG-14** 銜接）。 | 3、4、5 |
 | 進階 | **WG-18** | 送模前先洗對話簿——transcript 修復 | 實作 `messages_for_model`（LangChain `BaseMessage`）：孤兒 `ToolMessage` 清理、缺 tool 回覆補洞；完整 `history` 與送模副本分離（字元預算見 **WG-17**、整併見 **WG-19**）。 | 4、5、6 |
-| 進階 | **WG-19** | 舊對話濃縮成長期備忘——整併與每輪讀回組裝 | `memory/MEMORY.md`（nanobot 四節）、`HISTORY.md`、`**prompts/memory_merge.md**`；**先規劃** `final_idx` 再一次 consolidation；`**is_default_memory_template**`；`## Long-term Memory` 併入 **system**（延續 **WG-13** `**get_identity()`**）。 | 5、6 |
-| 進階 | **WG-20** | 技能卡進工具箱——最小 SkillsLoader 與 system prompt 注入 | 模組級 `**SKILLS_LOADER**`（對齊 **WG-14** `**WORKSPACE**`）；`skills/<name>/SKILL.md`、frontmatter 摘要、workspace／builtin 合併、同名覆蓋；`**build_system_prompt()`**（簽名不變）內併 Skills，依序：**課堂基底** → **長期記憶**（若有）→ `**# Active Skills**` → `**# Skills**`；大段間 `**---**`。ReAct 工具仍依 **WG-13**／**WG-14** 之 `**BaseTool.invoke**`。 | 4、5、6 |
+| 進階 | **WG-19** | 舊對話濃縮成長期備忘——整併與每輪讀回組裝 | `memory/MEMORY.md`（nanobot 四節）、`HISTORY.md`、`**prompts/memory_merge.md**`；**先規劃** `final_idx` 再一次 consolidation；`**is_default_memory_template**`；`## Long-term Memory` 併入 **system**（在 **tool_contract** 之後）。 | 5、6 |
+| 進階 | **WG-20** | 技能卡進工具箱——最小 SkillsLoader 與 system prompt 注入 | 模組級 `**SKILLS_LOADER**`；`**build_system_prompt()`** 順序：**identity** → **bootstrap 三檔** → **tool_contract** → **memory** → **Skills**（`# Skills` 區沿用現有 Python intro）；`**Agent.from_env()`** 呼叫 **`sync_workspace_templates`**。 | 4、5、6 |
 | 進階 | **WG-21** | 眼睛也進對話——多模態附圖、`image_path` 與 JSONL 載回閉環 | JSONL 之 `**user**` 列僅存 **`image_path`**／`**media_type**`（**不**存長 base64）；`**image_path**` **必須**相對**專案根**、**拒絕**絕對路徑；冷啟動 **`history`** 占位；**送模層** 僅本輪 data URL；與全檔 **`gpt-5.4-mini`**。 | 4、5、6 |
 | 進階 | **WG-22** | 核心與殼分家——`agent_core.py` 與 `Agent.chat` | 自 **WG-12～21 單檔藍本** 拆出 **`agent_core.py`**；`**class Agent**`、`**Agent.from_env()`**、`**chat(user_text, *, image_path=..., on_token=...)`**；`**main.py`** 為唯一 CLI（`input`／`print`、`**/image`** 解析）；行為與拆前等價；**不含 Streamlit**。 | 5、6、7 |
 
@@ -630,18 +630,18 @@ if __name__ == "__main__":
 ### 規格
 
 - 延續 **WG-07～11**：`def main()`、`load_dotenv`、無金鑰則印提示後 `**return`**；有金鑰時 `**ChatOpenAI**`、`**while True**`、`input()`、結束指令、空白行 `**continue**`。
-- 實作 `**def build_system_prompt() -> str**`（**WG-13** 起自本函式內抽出 `**get_identity()**`；**WG-19** 起併長期記憶；**WG-20** 起於 `**build_system_prompt()`** 內透過模組級 `**SkillsLoader**` 併 **Skills**，**簽名維持無參數**）。回傳字串須含：（1）**課堂規則**（須含「**繁體中文**」）；（2）**【本場次顯示名稱】** 與 `**nick**`（如 `**法鬥超人**`）。格式：`"{system_text}\n\n【本場次顯示名稱】{nick}"`。**本題不要求** `**get_identity()**`、**【解題方式】**、**【依賴管理】**（留 **WG-13**）。
+- 實作 `**def build_system_prompt() -> str**`（示範檔以 **`_get_identity(WORKSPACE)`** 渲染 `templates/agent/identity.md`，並自 workspace 讀 **`SOUL.md`／`USER.md`**；**WG-19** 起併長期記憶；**WG-20** 起再併 **Skills**，**簽名維持無參數**）。回傳字串須含：（1）**Runtime／Workspace** 區塊；（2）**繁體中文** 人設（預設在 **`SOUL.md`**）；（3）使用者名稱（預設在 **`USER.md`**，如 **法鬥超人**）。**本題不要求** **【解題方式】**、**【依賴管理】**（留 **WG-13** 寫入 **`SOUL.md`**）。
 - 在 `**main()`** 進入 `**while`** 前：`system_text = build_system_prompt()`；`**history: list[BaseMessage] = []**`（啟動時**不**從檔案載入）。**不要**把 `**SystemMessage`** `**append` 進 `history**`。
 - **併 WG-13 起**：每輪呼叫 `**run_react_turn(llm_tools, system_text, past, user_text)**`（**WG-13～16** 第三參數可傳 `**history**`）；system 由該函式內包成 `**SystemMessage(content=system_text)**` 送模。
 - **禁止**：把 system 當一般對話列寫進 `**history**` 或 **JSONL**（留 **WG-15**／**WG-16**）。
-- **不要求**：`**platform.system()`**／【exec 注意】／【解題方式】／【依賴管理】（留 **WG-13** `**get_identity()`**；跨平台 shell 細節可於 **WG-14** 工具 docstring 選修補足）。
+- **不要求**：`**platform.system()`**／【exec 注意】／【解題方式】／【依賴管理】（留 **WG-13** 之 **`SOUL.md`／`platform_policy.md`**；跨平台 shell 細節可於 **WG-14** 工具 docstring 選修補足）。
 
 ### 驗收條件
 
 - 有金鑰時，送模串列最前為 `**SystemMessage**`，其 `**content**` 與 `**build_system_prompt()`** 一致；終端串流與 **WG-11** 體感相同。
 - 能指出：`**build_system_prompt()`** 在哪裡被呼叫；`**history`** 在哪裡初始化；`**run_react_turn**`（或等價流程）如何把 `**system_text**` 與 `**history**`、本輪 `**HumanMessage`** 組進送模串列。
-- 能說明：`**build_system_prompt()`** 回傳字串中，**課堂規則**與**顯示名稱**各在哪一段。
-- 修改 `**nick**` 後重開程式，模型收到的 system 應反映新顯示名。
+- 能說明：`**build_system_prompt()`** 回傳字串中，**identity**、**SOUL**、**USER** 各在哪一段。
+- 修改 **`USER.md`** 之名稱後重開程式，模型收到的 system 應反映新顯示名。
 - 能一句話說明：為何 **system** 不放在 `**history`**（**JSONL** 只存 **user／assistant／tool**，見 **WG-15**）。
 - **邊界**：送模串列第一則（若存在）應為 `**SystemMessage**`；本輪 `**HumanMessage`** 在 `**history`** 之後。
 
@@ -676,7 +676,7 @@ history: list[BaseMessage] = []
 ### 規格
 
 - **延續 WG-12** 之 `**build_system_prompt()`** 與 `**history**` 分離；`**run_react_turn(llm_tools, system_text, past, user_text)**` 在內部建立 `**SystemMessage(content=system_text)**`（第三參數名 **`past`**，對齊 `**agent_core.py**`；**WG-13～16** 呼叫時可傳 `**main()`** 之 `**history**`，語意上 `**past**` 即完整已累積串列）。
-- **自 WG-12 抽出 `**get_identity() -> str**`**：`get_identity()` 只放人物設定與課堂規則，回傳字串須含：（1）**課堂規則**（須含「**繁體中文**」）；（2）**【解題方式】**：可重複驗證的任務，優先 `**write_file**` 寫腳本再 `**exec**`（如 `**uv run python 相對路徑**`），避免只在對話口算或貼無法重跑的一次性指令；（3）**【依賴管理】**：本專案用 **uv**；新增 Python 依賴請在專案根 `**exec uv add <套件名>**`，勿用 `**pip install**`；（4）**【本場次顯示名稱】** 與 `**nick**`。另抽出 `**get_runtime_environment() -> str**` 放 **【執行環境】** 與平台限制，並由 `build_system_prompt()` 組合 `get_identity()` 與 `get_runtime_environment()`（**WG-19** 起再併 `memory_block_for_system()` 等）。格式對齊 `**agent_core.py**`。
+- **人設改由 workspace 檔維護**：**【解題方式】**、**【依賴管理】**、繁體中文規則寫入 **`SOUL.md`**（模板在 `templates/SOUL.md`，`**sync_workspace_templates**` 缺檔才建）；使用者名稱寫入 **`USER.md`**。平台限制由 **`templates/agent/platform_policy.md`** 渲染進 **`_get_identity()`**。**`build_system_prompt()`** 順序：identity → bootstrap 三檔 → tool_contract（**WG-19** 起再併 memory；**WG-20** 起再併 Skills）。格式對齊 `**agent_core.py**`。
 - 以 `**@tool**` 定義 `**add_numbers(a: float, b: float) -> float**`；**docstring** 須說明算術須呼叫工具、不可心算（對齊示範檔繁中文案）。
 - `**TOOLS = [add_numbers]**`；`**_TOOL_BY_NAME = {t.name: t for t in TOOLS}**`；`**llm.bind_tools(TOOLS)**` 取得 `**llm_tools**`。
 - **串流輔助 `**_stream_model_response**`**：`**llm_tools.stream(messages)**` 累積 chunk（`**acc + chunk**`），邊收邊 `**print**` 文字；以 `**message_chunk_to_message(acc)**` 轉成 `**AIMessage**`（保留 `**tool_calls**`）。
@@ -693,7 +693,7 @@ history: list[BaseMessage] = []
 - 使用者提出須用工具完成的算術時，終端可觀察到 `**[工具 add_numbers]**` 與實際工具執行。
 - 能指出：`**bind_tools`**、`**_stream_model_response**`、`**run_react_turn**` 內處理 `**tool_calls**` 的迴圈。
 - 能說明：含 `**tool_calls**` 的 `**AIMessage**`、`**ToolMessage**`、最終純文字 `**AIMessage**` 在串列中的順序。
-- 能說明：`**get_identity()**` 中 **【解題方式】**、**【依賴管理】** 各對應哪一段；`**get_runtime_environment()**` 如何獨立描述執行環境；`**build_system_prompt()`** 如何組合兩者。
+- 能說明：**`SOUL.md`** 中 **【解題方式】**、**【依賴管理】** 各在哪一段；**`platform_policy.md`** 如何描述執行環境；`**build_system_prompt()`** 如何組合 identity、bootstrap、tool_contract。
 - **邊界**：只做一次 `**invoke**`、不處理 `**tool_calls**` 時可能錯在哪裡。
 
 ### 藍本對應
@@ -756,7 +756,7 @@ def run_react_turn(llm_tools, system_text, past, user_text):
 
 - 在教師指定作答檔（或延續 `**agent_core.py**`）實作，依賴 **`langchain_core`**（與 **WG-13** 一致）。
 - **保留 WG-13 之 `**add_numbers**`**；`**TOOLS**` 順序對齊示範檔：`add_numbers`、`read_file`、`write_file`、`edit_file`、`list_dir`、`exec`（共六支；對外名稱 **`exec`** 由 `@tool("exec")` 裝飾 `exec_workspace` 等實作函式）。
-- 設定 **`WORKSPACE = Path.cwd().resolve()`**；`**resolve_workspace_path**`：拒絕**絕對路徑**；`**../outside.txt**` 等須拒絕。
+- **`WORKSPACE`** 由 **`Agent.from_env()`** 解析（預設 **`~/.peas-agent/workspace`**；可用 **`-w`**／**`PEAS_AGENT_WORKSPACE`** 覆寫）；`**resolve_workspace_path**`：拒絕**絕對路徑**；`**../outside.txt**` 等須拒絕。`**read_file`** 另可讀套件內 **`builtin_skills/`** 相對路徑。
 - **`read_file(path, offset=1, limit=200)`**：UTF-8、帶行號；非檔案回傳錯誤。
 - **`write_file(path, content)`**：UTF-8 整檔覆寫；必要時 `**mkdir(parents=True)**`。
 - **`edit_file(path, old_text, new_text, replace_all=False)`**：局部替換；`old_text` 多次出現且未 `replace_all` 時報錯。
@@ -1346,7 +1346,7 @@ session_meta = save_session_jsonl(
 - 在專案根須有兩個 skill **根目錄**（可依教師指定簡化為只做一個）：
   - `**skills/`**：使用者或學生自訂 skill。
   - `**builtin_skills/`**：教師提供的內建 skill 範例（口頭常稱 builtin／內建 skills）。
-- **執行時自動建立根目錄**：`**SkillsLoader.__init__**` 內若上述根目錄尚不存在，須以 `**mkdir(parents=True, exist_ok=True)**` 建立**空資料夾**（對齊 **WG-14** `write_file` 慣例）。模組級 `**SKILLS_LOADER = SkillsLoader(WORKSPACE)**` 建立時即生效，學生完成本題後執行程式，左側檔案樹應先看到 `**skills/**` 與 `**builtin_skills/**`。**不**自動建立各 skill 子資料夾或 `**SKILL.md**`（仍由學生或教師範本手動新增）。
+- **執行時自動建立根目錄**：`**SkillsLoader.__init__**` 內 **`workspace/skills/`** 若不存在須 `**mkdir**`；**內建技能**從**套件目錄** `**builtin_skills/**` 唯讀載入（**不**在 workspace 複製）。模組級 `**SKILLS_LOADER**` 於 **`from_env`** 後指向當前 workspace。學生完成本題後，workspace 內應有 `**skills/**`；內建 skill 路徑摘要形如 `**builtin_skills/demo/SKILL.md**`。**不**自動建立各 skill 子資料夾或 `**SKILL.md**`（仍由學生或教師範本手動新增）。
 - 每個 skill 是一個資料夾，底下必須有 `**SKILL.md**`：
 
 ```text
@@ -1852,14 +1852,20 @@ def messages_for_model(
 
 ```python
 @classmethod
-def from_env(cls, *, session_path: str | None = None) -> Agent:
+def from_env(
+    cls,
+    *,
+    workspace: str | Path | None = None,
+    session_name: str | None = None,
+) -> Agent:
     ...
 ```
 
-- **必須**在 **`from_env`** 內呼叫 **`load_dotenv()`**。
-- **必須**檢查 **`OPENAI_API_KEY`**：若不存在，**必須**抛出 **`RuntimeError`**（訊息須提示檢查 `.env`；**不得**在 core 內用 **`input`**）。CLI 捕捉後 **`print`** 即可。
-- **`session_path`**：省略時讀 **`os.getenv("SESSION_JSONL_PATH", "session_wiki_wg.jsonl")`**（與拆前一致）。
-- **必須**在 **`from_env`** 內完成拆前 **`main()`** 啟動段之等價初始化：載入 JSONL（**WG-16**）、建立 **`ChatOpenAI(model="gpt-5.4-mini", temperature=0.2)`**、**`bind_tools(TOOLS)`**、還原 **`last_consolidated`** 等 **`Agent`** 實例狀態。
+- **必須**讀取 **`~/.peas-agent/config.json`**（首次執行自動 scaffold；**`llm.api_key`** 空則 **`RuntimeError`**，提示編輯 config）。
+- **不得**在 **`from_env`** 呼叫 **`load_dotenv()`** 或讀 **`OPENAI_API_KEY`** env（進階執行期設定集中於 config；基礎 **WG-05～08** 仍教 `.env` 概念）。
+- **`session_name`**：省略時在 **`workspace/sessions/`** 建立新檔 **`session_{YYYYMMDD_HHMMSS}_{6hex}.jsonl`**；有傳則使用 **`workspace/sessions/{檔名}`**（僅檔名，拒絕 **`..`**）。
+- **`main.py`** 支援 **`-w`／`--workspace`**、**`-s`／`--session`**。
+- **必須**在 **`from_env`** 內完成拆前 **`main()`** 啟動段之等價初始化：載入 JSONL（**WG-16**）、自 config 建立 **`ChatOpenAI`**、**`bind_tools(TOOLS)`**、還原 **`last_consolidated`** 等 **`Agent`** 實例狀態。
 
 **2. 單輪對話**
 
@@ -1930,7 +1936,7 @@ def chat(
 ### 驗收條件
 
 - 專案根存在 **`agent_core.py`**，可 **`from agent_core import Agent`**；存在 **`main.py`** 作 **`uv run main.py`** 進入點。
-- **`Agent.from_env()`** 在無 **`OPENAI_API_KEY`** 時抛出 **`RuntimeError`**；**`main.py`** 捕捉後印提示並結束（**不**崩潰 trace 即可）。
+- **`Agent.from_env()`** 在無 **`llm.api_key`**（config）時抛出 **`RuntimeError`**；**`main.py`** 捕捉後印提示並結束（**不**崩潰 trace 即可）。
 - **有金鑰**時：CLI 行為與拆前一致——多輪對話、**`quit`** 離開、工具呼叫、JSONL 寫入／冷啟動載回、**WG-19** 整併提示、**`/image`** 附圖與 JSONL **`image_path`**（**WG-21**）。
 - **`agent.chat("…")`** 回傳本輪 assistant 最終文字；**`history`**／JSONL 在 core 內累積；關閉再開可接續。
 - **`on_token`**：傳入 **`on_token=lambda s: ...`** 時，assistant 串流文字**只**進 callback、**不**再 **`print`** 同段 token（可寫最小腳本或測試說明驗證）。

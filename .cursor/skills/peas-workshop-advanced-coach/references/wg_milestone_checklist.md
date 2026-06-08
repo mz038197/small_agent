@@ -21,8 +21,8 @@ Use this file to determine the next unfinished workshop challenge before routing
 | WG | Title | Completion Signals |
 |---|---|---|
 | 12 | system/history separation | System prompt is built at runtime; history exists; serialized session does not depend on storing `SystemMessage` |
-| 13 | tool calling and ReAct loop | `get_identity`, `add_numbers`, `_stream_model_response`, `run_react_turn` |
-| 14 | workspace tools | `WORKSPACE`, `resolve_workspace_path`, `TOOLS`, `_run_bound_tool`, file tools, `exec_workspace` |
+| 13 | tool calling and ReAct loop | `_get_identity`, `SOUL.md`, `add_numbers`, `_stream_model_response`, `run_react_turn` |
+| 14 | workspace tools | `WORKSPACE` (default `~/.peas-agent/workspace`), `resolve_workspace_path`, `TOOLS`, `_run_bound_tool`, file tools, `exec_workspace` |
 | 15 | JSONL write | `_message_to_jsonl_line`, `save_session_jsonl`; main loop writes after each turn |
 | 16 | JSONL load | `_row_to_message`, `load_session_jsonl`; startup restores history when file exists |
 | 17 | budget trimming | `get_token_budget`, `estimate_message_tokens`, `message_cost`, `pick_consolidation_boundary` |
@@ -30,7 +30,7 @@ Use this file to determine the next unfinished workshop challenge before routing
 | 19 | memory consolidation | `read_memory_md`, `load_memory_merge_prompt`, `memory_block_for_system`, `ensure_budget_before_react` |
 | 20 | SkillsLoader | `SkillEntry`, `SkillsLoader`, `SKILLS_LOADER`, `build_skills_summary`, `build_system_prompt` includes skills |
 | 21 | image input | `PROJECT_ROOT`, `resolve_project_image_path`, `build_human_message_for_current_turn`, JSONL `image_path`, CLI `/image` or `pending_image` |
-| 22 | core/CLI split | `agent_core.py` exports `Agent`; `Agent.from_env`; `Agent.chat`; `agent_core.py` has no `input(`; thin `main.py` calls `agent.chat` and has no core loop definitions |
+| 22 | core/CLI split | `agent_core.py` exports `Agent`; `Agent.from_env` reads `~/.peas-agent/config.json`; `Agent.chat`; no `input(` in core; thin `main.py` with `-w`/`-s` calls `agent.chat` |
 
 ## Preservation Rules
 

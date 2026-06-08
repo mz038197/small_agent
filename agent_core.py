@@ -4,7 +4,7 @@ Agent Workshop 核心（agent_core.py）— WG-12～21 邏輯 + WG-22 `Agent` �
 對齊 `challenges-agent-workshop.md`（**WG-12～22**）；CLI 進入點見 **`main.py`**。
 學生 CLI 進入點：**`main.py`**（`from agent_core import Agent`）。
 
-公開 API：`Agent.from_env()`、`Agent.chat(user_text, *, image_path=..., on_token=...)`
+公開 API：`Agent.from_env(workspace=..., session_name=...)`、`Agent.chat(user_text, *, image_path=..., on_token=...)`
 """
 
 from __future__ import annotations
@@ -14,15 +14,16 @@ import copy
 import json
 import locale
 import os
+import platform
 import re
 import subprocess
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
 from langchain_core.messages import (
     AIMessage,
     AIMessageChunk,
@@ -35,31 +36,170 @@ from langchain_core.messages import (
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
+from prompt_templates import load_bundled_template, render_template, sync_workspace_templates
+
+
+BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md"]
+
+PACKAGE_DIR = Path(__file__).resolve().parent
+DATA_DIR = Path.home() / ".peas-agent"
+CONFIG_PATH = DATA_DIR / "config.json"
+DEFAULT_WORKSPACE = DATA_DIR / "workspace"
+_ACTIVE_CONFIG: dict[str, Any] = {}
+CONFIG_PATH_OVERRIDE: Path | None = None
+
+
+def _get_config_path() -> Path:
+    if CONFIG_PATH_OVERRIDE is not None:
+        return CONFIG_PATH_OVERRIDE
+    return CONFIG_PATH
+
+
+def _default_config() -> dict[str, Any]:
+    return {
+        "workspace": str(DEFAULT_WORKSPACE),
+        "token_budget": 100000,
+        "llm": {
+            "api_key": "",
+            "model": "gpt-5.4-mini",
+            "temperature": 0.2,
+            "base_url": "https://api.openai.com/v1",
+        },
+    }
+
+
+def _ensure_config() -> dict[str, Any]:
+    path = _get_config_path()
+    if not path.is_file():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = _default_config()
+        path.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        print(
+            f"已建立設定檔 {path}；請編輯 llm.api_key 後重新執行。"
+        )
+        return data
+
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        print(f"警告：{path} 不是有效 JSON，使用內建預設值。")
+        return _default_config()
+
+    return loaded if isinstance(loaded, dict) else _default_config()
+
+
+def _resolve_workspace(
+    cli_workspace: str | Path | None,
+    config: dict[str, Any],
+) -> Path:
+    if cli_workspace is not None:
+        return Path(cli_workspace).expanduser().resolve()
+    env_ws = os.environ.get("PEAS_AGENT_WORKSPACE")
+    if env_ws:
+        return Path(env_ws).expanduser().resolve()
+    cfg_ws = config.get("workspace")
+    if cfg_ws:
+        return Path(str(cfg_ws)).expanduser().resolve()
+    return DEFAULT_WORKSPACE.expanduser().resolve()
+
+
+def init_workspace(workspace: Path) -> Path:
+    root = workspace.expanduser().resolve()
+    root.mkdir(parents=True, exist_ok=True)
+    sync_workspace_templates(root, silent=True)
+    (root / "memory").mkdir(parents=True, exist_ok=True)
+    (root / "sessions").mkdir(parents=True, exist_ok=True)
+    (root / "skills").mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _build_llm(config: dict[str, Any]) -> ChatOpenAI:
+    llm_cfg = config.get("llm", {})
+    if not isinstance(llm_cfg, dict):
+        llm_cfg = {}
+    api_key = (llm_cfg.get("api_key") or "").strip()
+    if not api_key:
+        raise RuntimeError(
+            f"尚未設定 llm.api_key；請編輯 {_get_config_path()}。"
+        )
+    kwargs: dict[str, Any] = {
+        "api_key": api_key,
+        "model": llm_cfg.get("model", "gpt-5.4-mini"),
+        "temperature": llm_cfg.get("temperature", 0.2),
+    }
+    base_url = (llm_cfg.get("base_url") or "").strip()
+    if base_url:
+        kwargs["base_url"] = base_url
+    return ChatOpenAI(**kwargs)
+
+
+def _validate_session_name(session_name: str) -> str:
+    name = session_name.strip()
+    if not name:
+        raise ValueError("session_name 不可為空")
+    if name != Path(name).name or ".." in name or "/" in name or "\\" in name:
+        raise ValueError(f"無效的 session 檔名：{session_name!r}")
+    if not name.endswith(".jsonl"):
+        name = f"{name}.jsonl"
+    return name
+
+
+def _ensure_session_dir(workspace: Path) -> Path:
+    session_dir = workspace / "sessions"
+    session_dir.mkdir(parents=True, exist_ok=True)
+    return session_dir
+
+
+def _new_session_path(session_dir: Path) -> Path:
+    session_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    shortid = uuid.uuid4().hex[:6]
+    path = session_dir / f"session_{stamp}_{shortid}.jsonl"
+    path.touch(exist_ok=False)
+    return path
+
+
+def _resolve_session_path(
+    workspace: Path,
+    session_name: str | None,
+) -> Path:
+    session_dir = _ensure_session_dir(workspace)
+    if session_name is None:
+        return _new_session_path(session_dir)
+    safe_name = _validate_session_name(session_name)
+    return session_dir / safe_name
+
+
+def _set_memory_paths(workspace: Path) -> None:
+    global MEMORY_DIR, MEMORY_PATH, HISTORY_PATH
+    MEMORY_DIR = workspace / "memory"
+    MEMORY_PATH = MEMORY_DIR / "MEMORY.md"
+    HISTORY_PATH = MEMORY_DIR / "HISTORY.md"
+
+
+def _configure_runtime(workspace: Path, config: dict[str, Any]) -> None:
+    global WORKSPACE, SKILLS_LOADER, _ACTIVE_CONFIG
+    WORKSPACE = workspace
+    _ACTIVE_CONFIG = config
+    _set_memory_paths(workspace)
+    SKILLS_LOADER = SkillsLoader(
+        workspace,
+        builtin_dir=PACKAGE_DIR / "builtin_skills",
+    )
+
 
 # ---------------------------------------------------------------------------
 # WG-12：人設與 system／history 分離（main 內 system_text；不寫 SystemMessage 進 JSONL）
 # ---------------------------------------------------------------------------
-# 本區無獨立函式：每輪以 build_system_prompt() 產生 system_text，run_react_turn 內組 SystemMessage。
-# build_system_prompt() 完整實作見 WG-20（WG-19 起併 memory_block_for_system）。
+# 每輪以 build_system_prompt() 產生 system_text；完整實作見 WG-20。
 
 
 # ---------------------------------------------------------------------------
-# WG-13：get_identity、add_numbers、串流輔助（run_react_turn 見 WG-18 之後）
+# WG-13：identity／bootstrap、add_numbers、串流輔助（run_react_turn 見 WG-18 之後）
 # ---------------------------------------------------------------------------
-
-
-def get_identity() -> str:
-    """WG-13 自 build_system_prompt 抽出；含【解題方式】【依賴管理】。"""
-    system_text = (
-        "你是課堂程式助教，並請使用繁體中文。\n\n"
-        "【解題方式】可重複驗證的任務，必須先用 write_file 寫成 .py 腳本，"
-        "再用 exec 執行（例如 uv run python 相對路徑）；"
-        "避免只在對話中口算或貼無法重跑的一次性指令。\n\n"
-        "【依賴管理】本專案用 uv 管理套件；新增 Python 依賴請在專案根 exec "
-        "uv add <套件名>，不要用 pip install。"
-    )
-    nick = "法鬥超人"
-    return f"{system_text}\n\n【本場次顯示名稱】{nick}"
 
 
 def _detect_shell_name() -> str:
@@ -72,22 +212,37 @@ def _detect_shell_name() -> str:
     return shell_name or "POSIX shell"
 
 
-def get_runtime_environment() -> str:
-    """回傳目前工具執行環境與平台限制；不要混入人物設定。"""
-    shell_name = _detect_shell_name()
-    if os.name == "nt":
-        return (
-            f"【執行環境】目前工具執行在 Windows / {shell_name} 環境。\n\n"
-            "【平台限制】Windows shell 不支援 heredoc，禁止使用 "
-            "`python - <<'PY'`、`python - <<\"PY\"` 或任何包含 `<<` 的多行 shell 寫法。"
-            "需要執行多行 Python 時，必須先用 write_file 寫入 .py 檔，再用 "
-            "uv run python <script.py> 執行。"
-        )
-    return (
-        f"【執行環境】目前工具執行在 Unix-like / {shell_name} 環境。\n\n"
-        "【平台限制】可重複驗證的多行 Python 仍應先用 write_file 寫入 .py 檔，"
-        "再用 uv run python <script.py> 執行。"
+def _get_identity(workspace: Path) -> str:
+    """Render identity + platform policy from bundled templates."""
+    root = workspace.expanduser().resolve()
+    system = platform.system()
+    runtime = (
+        f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, "
+        f"Python {platform.python_version()}"
     )
+    platform_policy = render_template(
+        "agent/platform_policy.md",
+        system=system,
+        shell_name=_detect_shell_name(),
+    )
+    return render_template(
+        "agent/identity.md",
+        workspace_path=str(root),
+        runtime=runtime,
+        platform_policy=platform_policy,
+    )
+
+
+def _load_bootstrap_files(workspace: Path) -> str:
+    """Load workspace bootstrap files (AGENTS.md, SOUL.md, USER.md)."""
+    parts: list[str] = []
+    root = workspace.expanduser().resolve()
+    for filename in BOOTSTRAP_FILES:
+        file_path = root / filename
+        if file_path.is_file():
+            content = file_path.read_text(encoding="utf-8")
+            parts.append(f"## {filename}\n\n{content}")
+    return "\n\n".join(parts) if parts else ""
 
 
 @tool
@@ -124,22 +279,31 @@ WORKSPACE = Path.cwd().resolve()
 
 
 def resolve_workspace_path(path: str) -> Path:
+    """Resolve a filesystem path. Absolute paths are used as-is; relative paths are under WORKSPACE."""
     raw = Path(path)
     if raw.is_absolute():
-        raise PermissionError("absolute paths are not allowed")
-    target = (WORKSPACE / path).resolve()
-    try:
-        target.relative_to(WORKSPACE)
-    except ValueError as e:
-        raise PermissionError(f"path is outside workspace: {path}") from e
+        return raw.expanduser().resolve()
+    return (WORKSPACE / path).expanduser().resolve()
+
+
+def _resolve_readable_path(path: str) -> Path:
+    """Resolve a readable file path, with package builtin_skills/ as a relative-path fallback."""
+    target = resolve_workspace_path(path)
+    if target.is_file():
+        return target
+
+    if not Path(path).is_absolute():
+        pkg_target = (PACKAGE_DIR / path).expanduser().resolve()
+        if pkg_target.is_file():
+            return pkg_target
     return target
 
 
 @tool("read_file")
 def read_file(path: str, offset: int = 1, limit: int = 200) -> str:
-    """讀取 workspace 內 UTF-8 文字檔，回傳帶行號內容。"""
+    """讀取 UTF-8 文字檔，回傳帶行號內容。接受絕對路徑或相對於 workspace 的路徑。"""
     try:
-        target = resolve_workspace_path(path)
+        target = _resolve_readable_path(path)
         if not target.is_file():
             return f"Error: not a file: {path}"
         lines = target.read_text(encoding="utf-8").splitlines()
@@ -152,7 +316,7 @@ def read_file(path: str, offset: int = 1, limit: int = 200) -> str:
 
 @tool("write_file")
 def write_file(path: str, content: str) -> str:
-    """整檔覆寫寫入 UTF-8 文字檔（必要時建立父資料夾）。"""
+    """整檔覆寫寫入 UTF-8 文字檔（必要時建立父資料夾）。接受絕對路徑或相對於 workspace 的路徑。"""
     try:
         target = resolve_workspace_path(path)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -164,7 +328,7 @@ def write_file(path: str, content: str) -> str:
 
 @tool("edit_file")
 def edit_file(path: str, old_text: str, new_text: str, replace_all: bool = False) -> str:
-    """在既有檔案中把 old_text 換成 new_text（預設僅單次替換）。"""
+    """在既有檔案中把 old_text 換成 new_text（預設僅單次替換）。接受絕對路徑或相對於 workspace 的路徑。"""
     try:
         target = resolve_workspace_path(path)
         text = target.read_text(encoding="utf-8")
@@ -184,21 +348,21 @@ def edit_file(path: str, old_text: str, new_text: str, replace_all: bool = False
 
 @tool("list_dir")
 def list_dir(path: str, recursive: bool = False, max_entries: int = 200) -> str:
-    """列出 workspace 內資料夾內容。"""
+    """列出資料夾內容。接受絕對路徑或相對於 workspace 的路徑。"""
     try:
         root = resolve_workspace_path(path)
         if not root.is_dir():
             return f"Error: not a directory: {path}"
         iterator = root.rglob("*") if recursive else root.iterdir()
-        entries = [str(item.relative_to(WORKSPACE)) for item in iterator][:max_entries]
+        entries = [str(item) for item in iterator][:max_entries]
         return "\n".join(entries) if entries else "(empty)"
     except Exception as e:
         return f"Error: {e}"
 
 
 @tool("exec")
-def exec_workspace(command: str, timeout: int = 30) -> str:
-    """在 workspace 目錄下執行 shell 指令（已阻擋常見危險片段）。"""
+def exec_workspace(command: str, timeout: int = 30, cwd: str | None = None) -> str:
+    """執行 shell 指令（已阻擋常見危險片段）。可選 cwd 指定工作目錄；預設為 workspace。"""
     blocked = ("rm -rf", "del /f", "rmdir /s", "format", "shutdown")
     lowered = command.lower()
     if any(part in lowered for part in blocked):
@@ -210,12 +374,16 @@ def exec_workspace(command: str, timeout: int = 30) -> str:
             "uv run python <script.py>."
         )
 
+    work_dir = resolve_workspace_path(cwd) if cwd else WORKSPACE
+    if not work_dir.is_dir():
+        return f"Error: not a directory: {cwd or WORKSPACE}"
+
     child_env = os.environ.copy()
     child_env.setdefault("PYTHONUTF8", "1")
     child_env.setdefault("PYTHONIOENCODING", "utf-8")
 
     run_kw: dict[str, Any] = {
-        "cwd": str(WORKSPACE),
+        "cwd": str(work_dir),
         "shell": True,
         "capture_output": True,
         "timeout": timeout,
@@ -449,16 +617,11 @@ def image_bytes_to_data_url(data: bytes, media_type: str) -> str:
 
 
 def resolve_project_image_path(rel: str) -> Path:
-    """WG-21：相對路徑須落在專案根下（防 .. 逃出）。"""
+    """WG-21：解析附圖路徑。絕對路徑直接使用；相對路徑以專案根為基準。"""
     raw = Path(rel)
     if raw.is_absolute():
-        raise PermissionError("absolute image paths are not allowed")
-    full = (PROJECT_ROOT / rel).resolve()
-    try:
-        full.relative_to(PROJECT_ROOT)
-    except ValueError as e:
-        raise PermissionError(f"image path is outside project root: {rel}") from e
-    return full
+        return raw.expanduser().resolve()
+    return (PROJECT_ROOT / rel).expanduser().resolve()
 
 
 def parse_history_human_content(content: str) -> tuple[str, str | None, str | None]:
@@ -585,11 +748,11 @@ def _keep_image_only_on_current_human(messages: list[BaseMessage]) -> list[BaseM
 
 
 def get_token_budget() -> int:
-    raw = os.getenv("TOKEN_BUDGET", "100000")
+    raw = _ACTIVE_CONFIG.get("token_budget", 100000)
     try:
         n = int(raw)
         return n if n > 0 else 100000
-    except ValueError:
+    except (TypeError, ValueError):
         return 100000
 
 
@@ -769,12 +932,12 @@ def run_react_turn(
 # ensure_budget_before_react 見 WG-20 之後（呼叫 build_system_prompt）
 # ---------------------------------------------------------------------------
 
-REFERENCE_DIR = Path(__file__).resolve().parent
-MEMORY_DIR = REFERENCE_DIR / "memory"
+REFERENCE_DIR = PACKAGE_DIR
+MEMORY_DIR = DEFAULT_WORKSPACE / "memory"
 MEMORY_PATH = MEMORY_DIR / "MEMORY.md"
 HISTORY_PATH = MEMORY_DIR / "HISTORY.md"
-MEMORY_TEMPLATE_PATH = REFERENCE_DIR / "templates" / "memory" / "MEMORY.md"
-MEMORY_MERGE_PROMPT_PATH = REFERENCE_DIR / "prompts" / "memory_merge.md"
+MEMORY_TEMPLATE_PATH = PACKAGE_DIR / "templates" / "memory" / "MEMORY.md"
+MEMORY_MERGE_PROMPT_PATH = PACKAGE_DIR / "prompts" / "memory_merge.md"
 LONG_TERM_MEMORY_HEADING = "## Long-term Memory"
 CONSOLIDATION_MAX_RETRIES = 3
 
@@ -969,15 +1132,23 @@ def split_frontmatter(text: str) -> tuple[dict[str, str], str]:
 
 
 class SkillsLoader:
-    def __init__(self, workspace: Path) -> None:
+    def __init__(
+        self,
+        workspace: Path,
+        *,
+        builtin_dir: Path | None = None,
+    ) -> None:
         self.workspace = workspace.resolve()
         self.workspace_skills = self.workspace / "skills"
-        self.builtin_skills = self.workspace / "builtin_skills"
+        self.builtin_skills = (builtin_dir or PACKAGE_DIR / "builtin_skills").resolve()
         self.workspace_skills.mkdir(parents=True, exist_ok=True)
-        self.builtin_skills.mkdir(parents=True, exist_ok=True)
 
     def _skill_path_for_read(self, skill_file: Path) -> str:
-        return skill_file.resolve().relative_to(self.workspace).as_posix()
+        resolved = skill_file.resolve()
+        try:
+            return resolved.relative_to(self.workspace).as_posix()
+        except ValueError:
+            return resolved.relative_to(self.builtin_skills.parent).as_posix()
 
     def _entries_from_dir(
         self, root: Path, source: str, skip: set[str]
@@ -1030,12 +1201,19 @@ def build_skills_summary(entries: list[SkillEntry]) -> str:
     return "\n".join(lines)
 
 
-SKILLS_LOADER = SkillsLoader(WORKSPACE)
+SKILLS_LOADER = SkillsLoader(WORKSPACE, builtin_dir=PACKAGE_DIR / "builtin_skills")
 
 
 def build_system_prompt() -> str:
-    """WG-12～20 送模 system 唯一入口（人設 + 長期記憶 + Skills）。"""
-    parts: list[str] = [get_runtime_environment(), get_identity()]
+    """WG-12～20 送模 system 唯一入口（identity + bootstrap + tool_contract + memory + Skills）。"""
+    parts: list[str] = [_get_identity(WORKSPACE)]
+
+    bootstrap = _load_bootstrap_files(WORKSPACE)
+    if bootstrap:
+        parts.append(bootstrap)
+
+    parts.append(render_template("agent/tool_contract.md"))
+
     mem = memory_block_for_system()
     if mem:
         parts.append(mem)
@@ -1094,7 +1272,7 @@ def ensure_budget_before_react(
             if last_consolidated >= len(history):
                 raise RuntimeError(
                     f"WG-19：past 已空仍無法壓至 target（cost={cost}，target={target}）。"
-                    " 請縮短 MEMORY 或調高 TOKEN_BUDGET。"
+                    " 請縮短 MEMORY 或調高 config.json 的 token_budget。"
                 )
             final_idx = len(history)
         else:
@@ -1133,6 +1311,8 @@ class Agent:
     def __init__(
         self,
         *,
+        workspace: Path,
+        config: dict[str, Any],
         session_path: str,
         history: list[BaseMessage],
         session_meta: dict[str, Any] | None,
@@ -1140,6 +1320,8 @@ class Agent:
         llm: ChatOpenAI,
         llm_tools: Any,
     ) -> None:
+        self.workspace = workspace
+        self.config = config
         self.session_path = session_path
         self.history = history
         self.session_meta = session_meta
@@ -1148,26 +1330,32 @@ class Agent:
         self.llm_tools = llm_tools
 
     @classmethod
-    def from_env(cls, *, session_path: str | None = None) -> Agent:
-        load_dotenv()
-        if not os.getenv("OPENAI_API_KEY"):
-            raise RuntimeError(
-                "尚未讀到 OPENAI_API_KEY；請檢查 .env 或系統環境變數。"
-            )
-
-        resolved_path = session_path or os.getenv(
-            "SESSION_JSONL_PATH", "session_wiki_wg.jsonl"
+    def from_env(
+        cls,
+        *,
+        workspace: str | Path | None = None,
+        session_name: str | None = None,
+    ) -> Agent:
+        config = _ensure_config()
+        resolved_workspace = init_workspace(
+            _resolve_workspace(workspace, config)
         )
-        history, session_meta = load_session_jsonl(resolved_path)
+        _configure_runtime(resolved_workspace, config)
+
+        session_file = _resolve_session_path(resolved_workspace, session_name)
+        session_str = str(session_file)
+        history, session_meta = load_session_jsonl(session_str)
         last_consolidated = (
             int(session_meta.get("last_consolidated", 0) or 0)
             if session_meta
             else 0
         )
-        llm = ChatOpenAI(model="gpt-5.4-mini", temperature=0.2)
+        llm = _build_llm(config)
         llm_tools = llm.bind_tools(TOOLS)
         return cls(
-            session_path=resolved_path,
+            workspace=resolved_workspace,
+            config=config,
+            session_path=session_str,
             history=history,
             session_meta=session_meta,
             last_consolidated=last_consolidated,

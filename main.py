@@ -7,20 +7,46 @@ WG-12～21 執行邏輯在 **`agent_core.py`**；本檔僅 **`input`／`print`**
 
 from __future__ import annotations
 
-from agent_core import Agent, get_token_budget
+import argparse
+
+from agent_core import Agent, _get_config_path, get_token_budget
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Agent Workshop CLI")
+    parser.add_argument(
+        "-w",
+        "--workspace",
+        help="Agent workspace 路徑（覆寫 config.json 與預設 ~/.peas-agent/workspace）",
+    )
+    parser.add_argument(
+        "-s",
+        "--session",
+        dest="session_name",
+        help="Session 檔名（置於 workspace/sessions/；省略則每次建立新檔）",
+    )
+    args = parser.parse_args()
+
     try:
-        agent = Agent.from_env()
-    except RuntimeError as e:
+        agent = Agent.from_env(
+            workspace=args.workspace,
+            session_name=args.session_name,
+        )
+    except (RuntimeError, ValueError) as e:
         print(e)
         return
 
-    print(
-        "已讀到 API 金鑰設定（內容不顯示）；進入對話"
-        "（串流 + 工具 + JSONL + 預算裁切 + WG-21 附圖）。"
-    )
+    llm_cfg = agent.config.get("llm", {})
+    model = llm_cfg.get("model", "gpt-5.4-mini") if isinstance(llm_cfg, dict) else "gpt-5.4-mini"
+    base_url = (llm_cfg.get("base_url") or "").strip() if isinstance(llm_cfg, dict) else ""
+
+    print("已讀到 API 金鑰設定（內容不顯示）；進入對話（串流 + 工具 + JSONL + 預算裁切 + WG-21 附圖）。")
+    print(f"workspace: {agent.workspace}")
+    print(f"config: {_get_config_path()}")
+    print(f"session: {agent.session_path}")
+    print(f"model: {model}")
+    if base_url:
+        print(f"base_url: {base_url}")
     print(
         "（WG-21 附圖：先輸入 `/image 相對路徑`，再輸入本輪文字；"
         "或單行 `/image 路徑 問題`。）"
@@ -35,7 +61,7 @@ def main() -> None:
         print("尚無可載入歷史或檔不存在；自空 history 開始（WG-15 寫入）。")
 
     print(
-        f"（WG-17 TOKEN_BUDGET={get_token_budget()}，"
+        f"（WG-17 token_budget={get_token_budget()}，"
         f"WG-19 整併目標 ≤ {get_token_budget() // 2} 字元；以字元長度模擬 token。）"
     )
 
