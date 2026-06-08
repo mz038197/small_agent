@@ -7,14 +7,18 @@ requires-python = ">=3.12"
 dependencies = [
     "langchain-openai>=1.1.13",
     "matplotlib>=3.10.9",
+    "numpy>=2.4.6",
     "openai>=1.68.0",
     "openai-tts",
     "pandas>=2.3.3",
     "python-dotenv>=1.2.2",
+    "scikit-learn>=1.9.0",
     "sounddevice>=0.5.1",
     "streamlit>=1.57.0",
     "tensorflow>=2.21.0",
+    "tensorflow-cpu>=2.21.0",
+    "xgboost>=3.2.0",
 ]
 
 [tool.uv.sources]
-openai-tts = { path = "../../openai-tts" }
+openai-tts = { git = "https://github.com/mz038197/openai-tts.git" }

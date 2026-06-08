@@ -1,8 +1,0 @@
-{"created_at": "2026-05-31T20:59:42", "actor": "agent", "action": "rename_columns_zh", "columns": ["乘客編號", "是否生還", "艙等", "姓名", "性別", "年齡", "兄弟姊妹/配偶人數", "父母/子女人數", "票號", "票價", "艙房", "登船港口"], "rows": 893, "note": "將工作資料的欄位名稱改為繁體中文。"}
-{"created_at": "2026-05-31T21:02:21", "actor": "agent", "action": "drop_duplicates_by_name", "columns": ["姓名"], "rows": 2, "note": "依姓名欄位刪除重複資料，保留第一筆出現的紀錄。"}
-{"created_at": "2026-05-31T21:11:51", "actor": "agent", "action": "drop_cabin_column", "columns": ["艙房"], "rows": 891, "note": "刪除艙房欄位並保留其他資料欄位。"}
-{"created_at": "2026-05-31T21:13:07", "actor": "agent", "action": "fill_missing_age_with_parent_mean", "columns": ["年齡"], "rows": 20, "note": "以有子女族群的平均年齡補齊年齡欄位缺失值。"}
-{"created_at": "2026-05-31T21:13:33", "actor": "agent", "action": "fill_missing_age_no_children", "columns": ["年齡"], "rows": 157, "note": "以無子女族群的平均年齡補齊年齡欄位缺失值。"}
-{"created_at": "2026-05-31T21:13:58", "actor": "agent", "action": "fill_missing_embarked_mode", "columns": ["登船港口"], "rows": 2, "note": "以登船港口眾數補齊缺失值。"}
-{"created_at": "2026-05-31T21:17:16", "actor": "agent", "action": "one_hot_encode_sex", "columns": ["性別", "性別_female", "性別_male"], "rows": 891, "note": "將性別欄位進行 one-hot encoding。"}
-{"created_at": "2026-05-31T21:18:17", "actor": "agent", "action": "label_encode_embarked", "columns": ["登船港口"], "rows": 891, "note": "將登船港口以 Label Encoding 轉為數值編碼。"}

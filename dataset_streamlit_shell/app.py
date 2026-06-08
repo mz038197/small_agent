@@ -80,7 +80,7 @@ def overview() -> None:
         )
 
     with side:
-        render_chat_panel()
+        render_chat_panel(page_name="總覽")
 
 
 pages = {
@@ -103,9 +103,21 @@ pages = {
     "降維分析": [
         st.Page(str(SHELL_ROOT / "pages" / "10_PCA.py"), title="PCA 主成分分析"),
     ],
+    "機器學習 · 監督式": [
+        st.Page(str(SHELL_ROOT / "pages" / "14_Simple_Linear_Regression.py"), title="單變量線性回歸"),
+        st.Page(str(SHELL_ROOT / "pages" / "15_Multiple_Linear_Regression.py"), title="多變量線性回歸"),
+        st.Page(str(SHELL_ROOT / "pages" / "16_Logistic_Regression.py"), title="邏輯迴歸"),
+        st.Page(str(SHELL_ROOT / "pages" / "17_Regularized_Logistic_Regression.py"), title="正則化邏輯迴歸"),
+        st.Page(str(SHELL_ROOT / "pages" / "18_Linear_SVM.py"), title="線性 SVM"),
+        st.Page(str(SHELL_ROOT / "pages" / "19_Decision_Tree_Concepts.py"), title="決策樹概念"),
+        st.Page(str(SHELL_ROOT / "pages" / "20_XGBoost.py"), title="XGBoost"),
+    ],
     "機器學習 · 非監督式": [
         st.Page(str(SHELL_ROOT / "pages" / "11_Wards_Method.py"), title="Ward's Method（階層分群）"),
         st.Page(str(SHELL_ROOT / "pages" / "12_KMeans.py"), title="K-Means 分群"),
+    ],
+    "深度學習": [
+        st.Page(str(SHELL_ROOT / "pages" / "21_Neural_Network.py"), title="類神經網路"),
     ],
 }
 
