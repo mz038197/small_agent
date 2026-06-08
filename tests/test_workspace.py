@@ -96,6 +96,12 @@ def test_resolve_session_path_named_file(peas_home: Path) -> None:
     assert path == ws / "sessions" / "my_chat.jsonl"
 
 
+def test_resolve_session_path_defaults_to_session_jsonl(peas_home: Path) -> None:
+    ws = init_workspace(peas_home / "workspace")
+    path = _resolve_session_path(ws, None)
+    assert path == ws / "sessions" / "session.jsonl"
+
+
 def test_new_session_path_unique(peas_home: Path) -> None:
     session_dir = peas_home / "workspace" / "sessions"
     session_dir.mkdir(parents=True)

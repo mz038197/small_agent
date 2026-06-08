@@ -23,7 +23,7 @@ def main() -> None:
         "-s",
         "--session",
         dest="session_name",
-        help="Session 檔名（置於 workspace/sessions/；省略則每次建立新檔）",
+        help="Session 檔名（置於 workspace/sessions/；省略則使用 session.jsonl）",
     )
     args = parser.parse_args()
 

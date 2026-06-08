@@ -52,9 +52,10 @@ documents the general tool contract and non-obvious usage patterns.
 
 ## Web and External Information
 
-- Use web tools when the user asks for current information, a specific URL, or information likely to have changed.
-- Use `web_search` to find sources and `web_fetch` for a specific page or result that needs closer reading.
-- Do not invent freshness-sensitive facts when tools can verify them.
+- Use `web_fetch` when the user gives a specific URL or asks for current web content.
+- Do not use `exec` with `curl` or `wget` for ordinary page reading; use `web_fetch`.
+- Login-walled or heavy JavaScript pages may fail; say so plainly instead of inventing content.
+- Do not invent freshness-sensitive facts when `web_fetch` can verify them.
 
 ## Messaging and Media
 

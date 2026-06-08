@@ -57,7 +57,7 @@ def test_tool_contract_always_injected(workspace: Path) -> None:
     sync_workspace_templates(workspace, silent=True)
     prompt = build_system_prompt()
     assert "# Tool Usage Notes" in prompt
-    assert "read_file" in prompt
+    assert "web_fetch" in prompt
 
 
 def test_build_system_prompt_order(workspace: Path) -> None:

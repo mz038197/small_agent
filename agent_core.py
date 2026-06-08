@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import copy
+import ipaddress
 import json
 import locale
 import os
@@ -18,6 +19,7 @@ import platform
 import re
 import subprocess
 import uuid
+from urllib.parse import urlparse
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
@@ -162,13 +164,16 @@ def _new_session_path(session_dir: Path) -> Path:
     return path
 
 
+DEFAULT_SESSION_NAME = "session.jsonl"
+
+
 def _resolve_session_path(
     workspace: Path,
     session_name: str | None,
 ) -> Path:
     session_dir = _ensure_session_dir(workspace)
     if session_name is None:
-        return _new_session_path(session_dir)
+        return session_dir / DEFAULT_SESSION_NAME
     safe_name = _validate_session_name(session_name)
     return session_dir / safe_name
 
@@ -407,6 +412,71 @@ def exec_workspace(command: str, timeout: int = 30, cwd: str | None = None) -> s
         return f"Error: {e}"
 
 
+_BLOCKED_FETCH_HOSTS = frozenset({"localhost", "127.0.0.1", "::1", "0.0.0.0"})
+_MARKITDOWN: Any = None
+_DEFAULT_WEB_FETCH_MAX_CHARS = 8000
+
+
+def _get_markitdown() -> Any:
+    global _MARKITDOWN
+    if _MARKITDOWN is None:
+        from markitdown import MarkItDown
+
+        _MARKITDOWN = MarkItDown()
+    return _MARKITDOWN
+
+
+def _validate_fetch_url(url: str) -> tuple[str | None, str | None]:
+    cleaned = url.strip(" \t\r\n`\"'")
+    parsed = urlparse(cleaned)
+    if parsed.scheme not in ("http", "https"):
+        return None, f"Error: only http/https allowed, got {parsed.scheme or 'none'!r}"
+    if not parsed.netloc:
+        return None, "Error: missing domain"
+    host = parsed.hostname
+    if not host:
+        return None, "Error: missing hostname"
+    if host.lower() in _BLOCKED_FETCH_HOSTS:
+        return None, f"Error: blocked host: {host}"
+    try:
+        ip = ipaddress.ip_address(host)
+        if ip.is_private or ip.is_loopback or ip.is_link_local:
+            return None, f"Error: blocked address: {host}"
+    except ValueError:
+        pass
+    return cleaned, None
+
+
+def _extract_markitdown_text(result: Any) -> str:
+    for attr in ("text_content", "markdown"):
+        value = getattr(result, attr, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return str(result).strip()
+
+
+@tool("web_fetch")
+def web_fetch(url: str, max_chars: int = _DEFAULT_WEB_FETCH_MAX_CHARS) -> str:
+    """抓取 http/https URL 並轉成 Markdown（MarkItDown）。登入牆或重度 JS 頁面可能失敗。"""
+    cleaned, err = _validate_fetch_url(url)
+    if err:
+        return err
+    try:
+        cap = max(100, int(max_chars))
+    except (TypeError, ValueError):
+        cap = _DEFAULT_WEB_FETCH_MAX_CHARS
+    try:
+        result = _get_markitdown().convert(cleaned)
+        text = _extract_markitdown_text(result)
+        if not text:
+            return f"Error: no content extracted from {cleaned}"
+        if len(text) > cap:
+            text = text[:cap] + f"\n\n[truncated at {cap} characters]"
+        return text
+    except Exception as e:
+        return f"Error: {e}"
+
+
 def _decode_process_output(data: bytes) -> str:
     encodings = ["utf-8", locale.getpreferredencoding(False), "cp950"]
     for encoding in dict.fromkeys(encodings):
@@ -424,6 +494,7 @@ TOOLS = [
     edit_file,
     list_dir,
     exec_workspace,
+    web_fetch,
 ]
 
 _TOOL_BY_NAME: dict[str, Any] = {t.name: t for t in TOOLS}
